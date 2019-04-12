@@ -1,0 +1,84 @@
+---
+title: "7.1 Preprocecing data to perform soft Clustering"
+author: "Andreé Johnsson"
+date: "11/04/2019"
+output: html_document
+
+---
+
+<https://2-bitbio.com/post/clustering-rnaseq-data-using-fuzzy-c-means-clustering//>
+
+# Loading libraries and sample information
+```{r}
+suppressPackageStartupMessages(library(Mfuzz))
+suppressPackageStartupMessages(library(magrittr))
+suppressPackageStartupMessages(library(tidyverse))
+```
+
+
+```{r}
+median_vst_alfredo_noBad_noBB_aware <-
+    read_csv("0-Important-DataTables/median_vst_alfredo_noBad_noBB_aware.csv", col_names = TRUE)
+```
+
+# Make nice row names and get rid of unnececarry columns
+```{r}
+median_vst_alfredo_noBad_noBB_aware %<>%
+    mutate(GT = map2_chr(Genotype, TimePoint, ~paste(.x,.y,sep=" ")) ) %>%
+    column_to_rownames(var="GT") %>%
+    select(-Genotype,-TimePoint)
+```
+
+# Logic vector of genes with non zero variance
+```{r}
+var.per.gene.sorted <-
+    median_vst_alfredo_noBad_noBB_aware %>%
+    map_dbl(~var(.x)) %>% 
+    sort(decreasing = TRUE) %>%
+    .[.>0]
+
+summary(var.per.gene.sorted)
+sum(var.per.gene.sorted > 0.352606) 
+```
+
+# Filter away the non variant genes
+```{r}
+median_vst_ordered_by_var <- median_vst_alfredo_noBad_noBB_aware[,names(var.per.gene.sorted)]
+dim(median_vst_ordered_by_var)
+```
+
+
+# Standard Deviation of gene expressoin vectors before standarization
+```{r}
+median_vst_ordered_by_var %>%
+    map_dbl(~sd(.x)) %>%
+    base::sort(decreasing = FALSE) %>%
+    plot(1:length(.),.,xlab="Ordered Genes",ylab="Sd") 
+```
+
+# Standarize across genes
+```{r}
+median_vst_ordered_by_var_filtered_scaled <- scale(median_vst_ordered_by_var)
+median_vst_ordered_by_var_filtered_scaled %<>% t() %>% as.matrix() 
+dim(median_vst_ordered_by_var_filtered_scaled)
+```
+
+# Here we see the effect of scaling and filtering
+
+The distribution of the gene expression is not longer skewed
+it is balanced.
+```{r}
+quantile(as.matrix(t(median_vst_ordered_by_var)))
+quantile(median_vst_ordered_by_var_filtered_scaled)
+```
+
+```{r}
+median_vst_ordered_by_var_filtered_scaled %>%
+    as.data.frame() %>% 
+    rownames_to_column("genes") %>%
+    write_tsv("0-Important-DataTables/Mfuzz_median_vst_ordered_by_var_filtered_scaled.tsv"
+              , col_names = TRUE)
+
+```
+
+

@@ -1,0 +1,183 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+```{r eacho=F,include=F}
+library(kernlab)
+library(MASS)
+library(cvTools)
+```
+
+# Task 1
+
+This task consists on building a RBF kernel used to train a model used to predict "medv" (median value of owner-occupied homes in \$1000s) on the Boston data. Initially we make a prediction function taking the advantage of the kernel inner product space, then test a range of hyper parameter to select the best pair of lambda and sigma. Validation is done by 10-fold cross validation and a measure of performance is chosen to be RMSE. 
+
+
+```{r}
+df_boston = as.matrix(Boston)
+dim(df_boston)
+```
+
+## Dividing the data in training and test set
+
+Here we decide the data frame into train and test set 80 respective 20 percent. 
+
+```{r}
+set.seed(2018)
+nbrows=nrow(df_boston)
+trainID = sample(1:nbrows,400, replace = F)
+testID = (1:506)
+testID = testID[-trainID]
+```
+
+## Predict function
+
+To be able to effectively make predictions we need to kernalize the ridge regression expression. By this we move from feature space to dot space. This is done by calculate the Kernel matrix beforehand. This procedure drastically saves computer power and makes the calculations easier.
+
+```{r}
+predictKRR = function(trainX, trainY, X, lambda, sigma){
+    
+    rbf = rbfdot(sigma = sigma)
+    Kernel = kernelMatrix(rbf,trainX)
+    identMx <- diag(nrow(Kernel))
+    
+    alphas = solve(Kernel+identMx*lambda) # x=b*A^-1, standar matrix solution
+    alphas = t(trainY)%*%alphas
+    
+    k = kernelMatrix(rbf, trainX, X)
+    Ypred <-  alphas%*%k 
+    return(Ypred) 
+    }
+```
+
+## 10-Fold Cross Validation on multiple Kerner ridge regression models
+
+The function below takes in a list of multiple sigma and lambda values to calculate the most effective hyper parameters. Then we specify the fold, in this case 10-Folf cross validation. For each hyper parameter pair we make a model and for each model we make a 10 fold cross validation in which the results are stored as root mean square error, used as a measure of performance.
+
+```{r}
+cv10KRR  = function(testParam, cvFold = 10){
+    set.seed(2018)
+    cvID = cvFolds(length(trainID),K = cvFold)
+
+    resultsTable = data.frame()
+    nbOfTestparam = nrow(testParam)
+    RMSE = vector(mode = "double", length = nbOfTestparam)
+    
+    for (paramPair in seq(nbOfTestparam)){
+        
+        var = testParam[paramPair,]
+        yPredTotal = vector(mode="double", length = length(trainID))
+        yObsOrder = yPredTotal 
+
+        for (cvGroup in seq(cvFold)){
+            
+            tmpID = cvID$subsets[cvID[["which"]] == cvGroup]
+            
+            trainX = df_boston[-c(testID,tmpID),-14]
+            trainY = df_boston[-c(testID,tmpID),14]
+            X = df_boston[tmpID,-14]
+            y40obs = df_boston[tmpID,14]        
+            
+            y40pred = predictKRR(trainX 
+                               , trainY 
+                               , X 
+                               , lambda = var$lambda
+                               , sigma = var$sigma)
+            
+            yPredTotal[tmpID] = y40pred
+            yObsOrder[tmpID] =  y40obs
+            }
+        
+        RMSE[paramPair] = sqrt(sum((yObsOrder-yPredTotal)^2)
+                              /length(yObsOrder))
+        resultsTable = rbind(resultsTable
+                             , unlist(c(var,RMSE=RMSE[paramPair])))
+        colnames(resultsTable) = c("lambda","sigma","RMSE")
+        
+        plot(yObsOrder,yPredTotal
+            , main = paste(paramPair,"-","lambda:"
+            , var$lambda, "sigma:"
+            , var$sigma,sep = " ")
+            , col="red",xlab = "yobs", ylab="ypred")
+        
+        legend("topleft"
+            , legend = paste("RMSE:",round(RMSE[paramPair],3)
+            , sep = " "),inset=0.05)
+        
+        }
+    print(resultsTable)
+    return(resultsTable)
+    }
+```
+
+## Checking the performance of the best model
+
+After testing for a long list of hyper parameter combinations we select the parameters which produces the lowest MSE and test those with out test data.
+The function below does just that, takes in a list of hyper parameters and makes a model with the test set and outputs the result as RMSE of the run.
+
+```{r}
+testMSE = function(testParamList){
+    
+    trainX = df_boston[trainID,-14]
+    trainY = df_boston[trainID,14]
+    X = df_boston[testID,-14]
+    y_obs = df_boston[testID,14]
+    
+    y_pred = predictKRR(trainX
+                        , trainY 
+                        , X 
+                        , lambda = testParamList$lambda
+                        , sigma = testParamList$sigma)
+
+    RMSE = sqrt(sum((y_obs-y_pred)^2)
+                /length(y_obs))
+    
+    plot(y_obs
+        , y_pred
+        , main = paste("Best model, lambda:"
+        , testParamList$lambda, "sigma:"
+        , testParamList$sigma, sep = " ")
+        , col="black",xlab = "yobs", ylab="ypred", pch=18)
+    legend("topleft"
+        , legend = paste("RMSE:",round(RMSE,3)
+        , sep = " "),inset=0.05)
+    cat("lambda: ",testParamList$lambda
+        , "\nsigma: ",testParamList$sigma
+        , "\nRMSE: ", RMSE )
+    }
+```
+
+## Test parameters
+
+The hyper parameters selected will be combined to produce all the possible permutations.
+
+```{r}
+
+testParam = expand.grid(lambda = c(0.1,0.01,0.001)
+                          , sigma = c(0.1,0.01,0.001))
+
+```
+
+## Run the program 
+
+### Get the best hyperparameter combination on the test set.
+ 
+```{r fig.width=7,fig.height=6, fig.align='center'}
+par(mfrow=c(3,3))
+Resultcv10KRR = cv10KRR(testParam)
+par(mfrow=c(1,1))
+```
+
+### Get the combination with lowest RMSE and make prediction of the test set
+
+```{r fig.height= 3,fig.width= 3, fig.align='center'}
+minTestMSErow = which.min(Resultcv10KRR[,3])
+testMSE(Resultcv10KRR[minTestMSErow,-3])
+```
+
+The best hyper parameter pair is proven to be lambda = 0.01 and sigma = 0.001 as it yields to lowest RMSE in both the training and test set.
+
+

@@ -1,0 +1,89 @@
+---
+title: "Creating the popgenie tair table"
+author: "Andreé Johnsson"
+date: "03/04/2019"
+output: html_document
+---
+
+
+# Loading libraries
+```{r}
+suppressPackageStartupMessages(library(magrittr))
+suppressPackageStartupMessages(library(tidyverse))
+```
+
+# Loading arabidopsis and popgenie tables
+```{r}
+# Read table of all genes dowloaded from popgenie
+pop_genie_all_genes <- read_tsv("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/restart_Analysis_To_make_int_Understandable/0-Important-DataTables/pop_genie_all_genes_3_april.tsv", col_names = TRUE)
+
+# Read arabidopsis descriptions downoaded from tair
+# 23 gene ids did not got any hits on TAIR
+arab_genie_all_genes <- read_csv2("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/restart_Analysis_To_make_int_Understandable/0-Important-DataTables/arab_uniq_descriptions_all_genes_3_april.csv"
+                                  , col_names = TRUE, guess_max = 16458)
+```
+# Joining both tables and saving
+```{r}
+pop_arab_genie_all_genes <- left_join(pop_genie_all_genes,arab_genie_all_genes,by="ATG.2")
+dim(pop_genie_all_genes) # Same dimentions as pop_arab_genie_all_genes, we did it correct
+dim(arab_genie_all_genes) 
+dim(pop_arab_genie_all_genes) # Same dim as pop_genie_all_genes
+
+pop_arab_genie_all_genes %>%
+    write_csv2("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/restart_Analysis_To_make_int_Understandable/0-Important-DataTables/pop_arab_genie_all_genes.csv", col_names = TRUE)
+
+```
+
+# Reading in the joined table with all the information
+```{r}
+pop_arab_genie_all_genes <- read_csv2("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/restart_Analysis_To_make_int_Understandable/0-Important-DataTables/pop_arab_genie_all_genes.csv", col_names = TRUE, guess_max = 80000)
+```
+
+
+```{r}
+load("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/restart_Analysis_To_make_int_Understandable/log2FC_and_padj_matrices_and_trimmed.RData")
+```
+
+
+```{r}
+extend_desc_df <- function(desc.df,log.df){
+    start.col = ncol(desc.df)
+    for (i in 1:ncol(log.df)){
+        int.name = colnames(log.df)[i]
+        col <- rep(NA, nrow(desc.df))
+        
+        sig_gene_names <- subset(log.df,!is.na(log.df[,i])) %>% rownames()
+        tmp.bol = (desc.df$Gene %in% sig_gene_names)
+        
+        col[tmp.bol] = int.name
+        desc.df[int.name] = col
+    }
+    vector <- apply(desc.df[,ncol(log.df):ncol(desc.df)], 1, function(row){
+        row <- row[!is.na(row)]
+        tmp = paste(row,collapse="\t")
+        tmp %<>% na_if("")
+        }) 
+    desc.df = desc.df[,1:start.col]
+    desc.df %<>% mutate(Significant.Tables = vector)
+    return(desc.df)
+}
+```
+
+
+```{r}
+pop_arab_genie_all_genes = extend_desc_df(pop_arab_genie_all_genes,trimmed_log2FC_only_sig_genes_matrix)
+
+```
+
+```{r}
+pop_arab_genie_all_genes %>% map(~sum(!is.na(.x)) )
+```
+
+
+```{r}
+pop_arab_genie_all_genes %>% select(Gene) %>% unique() %>% nrow()
+```
+
+# Done The table is saved as csv2 pop_arab_genie_all_genes
+
+

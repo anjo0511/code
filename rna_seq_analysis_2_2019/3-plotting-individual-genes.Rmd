@@ -1,0 +1,126 @@
+---
+title: "3-plotting-individual-genes"
+author: "Andreé Johnsson"
+date: "02/04/2019"
+output: html_document
+---
+
+# Loading libraries and sample information
+```{r}
+suppressPackageStartupMessages(library(magrittr))
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(DESeq2))
+suppressPackageStartupMessages(library(gridExtra))
+```
+
+# Loading from RData to skip refactoring
+```{r}
+load("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/restart_Analysis_To_make_int_Understandable/sample_info_alfredo_noBad_noBB.RData")
+```
+
+# Loading the main table to seach for genes
+```{r}
+pop_arab_genie_all_genes <- read_csv2("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/restart_Analysis_To_make_int_Understandable/0-Important-DataTables/pop_arab_genie_all_genes.csv", col_names = TRUE, guess_max = 80000)
+```
+# Loading from dataframe
+```{r}
+median_vst_alfredo_noBad_noBB_aware <-
+    read_csv("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/restart_Analysis_To_make_int_Understandable/0-Important-DataTables/median_vst_alfredo_noBad_noBB_aware.csv", col_names = TRUE)
+
+vst_alfredo_noBad_noBB_aware <-
+    read_csv("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/restart_Analysis_To_make_int_Understandable/0-Important-DataTables/vst_alfredo_noBad_noBB_aware.csv", col_names = TRUE)
+```
+
+# Rearranging the data to be easily plottable
+```{r}
+vst_to_plot_all_genes <-
+    vst_alfredo_noBad_noBB_aware %>% column_to_rownames(var="genes") %>% t() %>% as.data.frame() %>% 
+    rownames_to_column(var="NGI.ID") %>% right_join(sample_info_alfredo_noBad_noBB,.,by = "NGI.ID") 
+```
+
+# Relevel the median df to have the correct levels
+```{r}
+median_vst_alfredo_noBad_noBB_aware %<>%
+    mutate(
+        Genotype = factor(Genotype, levels = c("T89","SVP","FT")) ,
+        TimePoint = factor(TimePoint, levels= c("LD", "SDW1", "SDW2", "SDW3", "SDW10", "CTW10", "LD2"))
+    )
+```
+
+# Check the levels to get nice plots
+```{r}
+median_vst_alfredo_noBad_noBB_aware[,1:2] %>% map(~levels(.x))
+vst_to_plot_all_genes[,2:3] %>% map(~levels(.x)) 
+```
+
+
+# Plot function for individual genes
+```{r}
+plotIndividualExpression_with_scatter<- function(vst,median,gene,scatter= FALSE){
+    # Both graphs share the same aestetics
+    aes.1 = aes_string(x= "TimePoint", y= gene
+                          , group= "Genotype", col= "Genotype")
+    # Plots the median of the replicates across time
+    gene_plot <-
+        ggplot(median,aes.1) +
+        facet_wrap(~Genotype, scales= "free_y") +
+        geom_point(size=2) +
+        geom_line(size=1.1) +
+        theme_bw() +
+        theme(axis.text.x = element_text(angle = 50, hjust = 1) ) +
+        scale_colour_brewer(palette= "Dark2")  +
+        labs(title= "Expression of The Median Of The Replicates")
+    # Plots the replicatres themselfs if scatter is true
+    if(scatter == TRUE){
+        gene_plot = gene_plot + geom_point(data = vst, aes.1)
+        return(gene_plot)
+        }
+    return(gene_plot)
+}
+```
+
+# Search for a gene in the big table
+```{r}
+SVP_genes_ids <- pop_arab_genie_all_genes %>% filter(str_detect(All.Gene.Simbol.tair,"SHORT VEGETATIVE PHASE")) %>% pull(Gene) %>% unique()
+
+FT_genes_ids <- pop_arab_genie_all_genes %>% filter(str_detect(All.Gene.Simbol.tair,"FLOWERING LOCUS T")) %>% pull(Gene) %>% unique()
+```
+
+# Plot a list of genes in the consol
+```{r}
+lapply(SVP_genes_ids, function(x){
+plotIndividualExpression_with_scatter(vst = vst_to_plot_all_genes
+                                      , median = median_vst_alfredo_noBad_noBB_aware
+                                      , gene= x
+                                      , scatter = FALSE) })
+
+```
+
+
+# Save png, saves the png in the right format and size
+```{r}
+save_png_of_genes <- function(path, genes, title="",scatter=FALSE){
+    no.genes = length(genes)
+    grobs <- lapply(genes, function(x){
+        plotIndividualExpression_with_scatter(vst = vst_to_plot_all_genes
+                                      , median = median_vst_alfredo_noBad_noBB_aware
+                                      , gene= x
+                                      , scatter = scatter) })
+
+    png(path, height = (280*no.genes), width = 900, units = "px", res = 100)
+    grid.arrange(grobs=grobs, ncol=1,
+      top = textGrob(title, gp=gpar(fontsize=16,font=3)) )
+    dev.off()   
+
+}
+```
+
+
+
+
+```{r}
+save_png_of_genes("SVP_genes_ids.png",SVP_genes_ids,"SVP Genes")
+save_png_of_genes("FT_genes_ids.png",FT_genes_ids,"FT Genes")
+```
+
+

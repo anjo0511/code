@@ -1,0 +1,35 @@
+---
+title: "Assignment 3: Group 9 - Implementation of machine learning methods to make classification decision"
+author: "Pernilla Ericsson, Teitur Ahlgren Kalman, Hanna Lundgren, Andreé Johnsson"
+date: "Dec 18th, 2018"
+output:
+  pdf_document:
+    number_section: yes
+    toc: yes
+    toc_depth: 2
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_depth: '2'
+---
+
+# Introduction
+
+In this laboratory we implement newly gained knowledge on machine learning methods and try implement them in two tasks. The first consisting of implementing kernel ridge regression on the Boston data from the ISRL package, the second we take another look at the handwritten digits data frame from the last laboratory and implement a kernel SVM. The last task is not a hands on task it is rather an review task in which we take a look at a random forest algorithm implemented on the titanic data made by Megan Risdal on kaggele. 
+
+
+
+```{r include=FALSE, echo=F}
+setwd("~/Desktop/Assignment3_Bigdata/")
+load("Final.RData")
+```
+
+
+```{r child = 'report-HM3-Task1.Rmd'}
+```
+
+```{r child = 'report-HM3-Task2.Rmd'}
+```
+
+```{r child = 'report-HM3-Task3.Rmd'}
+```

@@ -1,0 +1,247 @@
+---
+title: "Assignment 2 - Geneexpression and Recognition of handwritten digits"
+author: "Pernilla Ericsson, Teitur Alhgren Kalman, Hanna Lundgren, Andreé Johnsson"
+date: "Dec 10th, 2018"
+output:
+  pdf_document:
+    number_section: yes
+    toc: yes
+    toc_depth: 2
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_depth: '2'
+---
+
+
+```{r echo=F,include=F, eval=T}
+load("HW2_ex1.RData")
+```
+
+
+# Task 1.1
+
+In task 1.1 we are given a data set of gene expression data from 2253 different genes gathered from 226 patients with one of two different kinds of brain cancer. Our task is to build a classifier from the gene expression data that can predict which of these types a patient from a test set has. We are to calculate the principal components of the gene variables and build the classifier from these. To evaluate the optimal number of principal components we are to use cross validation (LOOCV) and find the one number of principal components giving the lowest MSE.
+ 
+## Read in the necessary libraries
+
+```{r eval=T,echo=T,results=F}
+library(vcd)
+library(glmnet)
+```
+ 
+
+## Read in the data
+
+We start by reading in the data, both data frames with row names as the first column. The gene data frame is transposed to obtain the observations as rows and independent variables (*genes*) as columns.
+
+```{r}
+GeneExpressionData <- read.delim(
+"~/Desktop/Big-Data-HT18/homeworks/HM2/GeneExpressionData.txt", row.names=1)
+MetaData <- read.delim("~/Desktop/Big-Data-HT18/homeworks/HM2/MetaData.txt",
+                       row.names=1)
+df_gene = t(GeneExpressionData)
+```
+
+Here we can see the dimensions of the gene data frame, with 226 observations and 20532 genes.
+
+```{r}
+dim(df_gene)
+```
+
+To be able to reduce the dimensions of the feature space we use the R build in function called prcomp which build Principle Components. In the output of the method, the rotation is the principle loading vectors and the x contain the score values.
+
+```{r}
+pr.out=prcomp(df_gene,scale=F)
+names(pr.out)
+```
+## Overview of the Principle Components Variances
+
+To assess the number of components needed we compute the variance explained by each PC and the cumulative variance of each PC. From these we can see that we need around 147 PCs to explain around 80% of the variance but on the other hand it is only the first few components that explain most of the variance as can be seen from the plot to the left, the 'Variance explained plot'.
+
+```{r fig.height=3}
+pr.var = (pr.out$sdev)^2
+pve = pr.var/sum(pr.var)
+par(mfrow=c(1,2))
+plot(1:226,pve,type='b',col='red',lwd=2,pch=18,cex=1.2,
+     xlab = 'No of Principle components',ylab = 'Variance explained')
+grid(nx = 100, ny = 200,col='grey')
+plot(1:226,100*cumsum(pve),type = 'b',col='red',lwd=2,pch=18,cex=1.2,
+     xlab = 'No of Principle components',ylab = 'Cumulative Variance')
+grid(nx = 100, ny = 200,col='grey')
+par(mfrow=c(1,1))
+```
+## Function to plot the Accuracy for the model
+
+The function below is made to plot the accuracy of the model made with the training data in order to determine the number of PCs that are needed to explain most of the data.
+
+```{r}
+printMin = function(){
+  minLabel= as.character(match(max(AccuracyPred),AccuracyPred))
+  minLabel2= as.character(match(max(AccuracyTrain),AccuracyTrain))
+  plot(AccuracyPred,type = 'b',col='red',lwd=2,pch=18,cex=1.1,
+       xlab = 'Number of PCs used in the model',
+       ylab = 'Accuracy',
+       main = 'Leave-one-out Crossvalidation',
+       ylim = c(0,1.1))
+  grid(nx = 100, ny = 200,col='grey')
+  points(match(max(AccuracyPred),AccuracyPred),
+         max(AccuracyPred),col='black',
+         pch=17,cex=1.2)
+  text(match(max(AccuracyPred),AccuracyPred),
+       AccuracyPred[match(max(AccuracyPred),AccuracyPred)],
+       labels=minLabel,pos=3)
+}
+```
+## Joining the prediciton and the response
+
+In order to make a model of the predictors we use the Meta Data column SubType which we want to predict and join it to the score matrix (i.e. the x variable obtained from the output of the prcomp method). This results in a second matrix which we call the scoreMatrix which contains both the observations and the response to later be able to make the model.
+
+
+```{r}
+type = ifelse(MetaData$SubType=='IDHmut-codel','A','B')
+table(type)
+scoresMatrix = data.frame(type,pr.out$x)
+```
+
+## Test & Training set
+
+In order to train the model and make more accurate predictions we divide the data set into a training and a test set (80% and 20% of the data respectively). This was done by using the method sample and a random seed of 1. This basically divides the indexes which are later used to called scoresMatrix with in order to refer to respective data set.
+
+```{r}
+set.seed(1)
+trainIDs = sample(1:226,(0.8*226),replace = F)
+testIDs = (1:226)[-trainIDs]
+trainIDs = sort(trainIDs)
+testIDs = sort(testIDs)
+```
+
+## Initializing vectors and pre-deciding the numbers of models to make
+
+To be able to interpret the result we need to know what value of either of the prediction factors have be set to what dummy variable. This is done by the contrasts method. We are later going to make one model for each cumulative PC component we chose i.e we will make a loop that increasingly includes  one extra PC each time. For each model we are also going to store the Kappa statistics and the Accuracy of the model for both train and test sets. These values will be stored in before hand initialized vectors shown below. The number of PCs chosen to create models from contained up to 20 PCs since, as seen in the Variance vs PC components plot previously made, the variance explained levels off after approximately 20 PCs. In this code snippet below we although chose to omit the models with more than 7 PCs since in the logistic regression model (performed in the next step) we observed equivalent accuracy and Kappa statistics whereby, for simplicity, we only chose to create models with up to 7 PCs.
+
+```{r}
+contrasts(scoresMatrix$type)
+nbOfPCs = 7
+columns=nbOfPCs+1
+kapaVec = vector('double', length = columns-1)
+AccuracyTrain = vector('double',length=columns-1)
+AccuracyPred = vector('double',length=columns-1)
+```
+
+## Logistic regression models.
+
+Now we make two loops, the outer loop is to increasingly make a model for each PC and the inner loop is to compute a Leave-one-out Cross Validation for each model with the train data set. For each model after the second loop we make a model for all the observations in the train data and later use the model to predict the test set from which accuracy of prediction is calculated as the fraction of correct predictions. 
+
+```{r warning=F}
+for (j in seq(2, columns)){
+  
+  glm.pred = rep('B',length(trainIDs))
+
+  for (i in 1:length(trainIDs)){
+    
+    trainSample = trainIDs[i]
+    glm.fit = glm(type~., data=scoresMatrix[-c(trainSample,testIDs),1:j],
+                                    family='binomial')
+    
+    glm.prob = predict(glm.fit,scoresMatrix[trainSample,1:j],
+                                  type='response')
+    
+    glm.pred[i]= ifelse(glm.prob>.5,'B','A')  
+  
+  }
+  
+  glm.final = glm(type~., data=scoresMatrix[trainIDs,1:j],
+                                 family ='binomial')
+  glm.probFinal = predict(glm.final,scoresMatrix[-trainIDs,1:j],
+                      type='response')
+
+  glm.predFinal= ifelse(glm.probFinal>.5,'B','A')
+  AccuracyTrain[j-1]=mean(scoresMatrix$type[testIDs]==glm.predFinal)
+  
+  kapaVec[j-1]=Kappa(table(type[testIDs],glm.predFinal))$Unweighted[1]
+  
+  AccuracyPred[j-1] = mean(scoresMatrix$type[trainIDs]==glm.pred)
+  cat('Accuracy for model ',j-1,': ',AccuracyPred[j-1], "\n")
+  cat('Accuracy of prediction for model',j-1,': ',AccuracyTrain[j-1], "\n")
+  cat('Kappa for model',j-1,': ',kapaVec[j-1], "\n")
+  cat("-------------------------------------------\n")
+  
+}
+```
+
+## Results
+
+From the output above we see that the prediction accuracy and the Kappa statistics for the model containing six principle components is 1. This indicates the most accurate and simple model according to the selected test and training set. To get an overview of the accuracy of prediction we plot the number of principle components against accuracy of prediction.
+
+```{r echo=F,fig.height=4, fig.width=5}
+printMin()
+```
+
+# Task 1.2
+
+In task 1.2 we are to perform the same classification as in 1.1 regarding the same data set and same brain tumors. The difference here is that we don't calculate the principal components of the gene variables, instead we perform classification through penalized regression. Instead of using the most influencing principal components we do variable selection and coefficient estimation through penalized logistic regression. For this task we are to select the most important variables for our classification function by choosing the penalty (lambda) that shrinks the less important parameters to null.
+
+## LASSO penalized logistic regression
+
+The data used had the same division for the training and test set as in the previous task(1.1). The LASSO penalized logistic regression is made with the train data set and evaluated with Leave One Out Cross Validation.
+
+```{r eval=F}
+lasso.model= cv.glmnet(df_gene[-testIDs,],
+                       type[-testIDs],
+                       alpha=1,
+                       family='binomial',
+                       type.measure = 'class',
+                       nfolds = length(trainIDs))
+```
+
+## Lambda plot of LASSO model
+
+The minimum value of lambda for the LASSO regression can be identified by the plot of varying lambda values against the misclassification error. This plot indicates both the lambda value for the minimum misclassification error as well as the lambda one standard error from the minimum. In this case these two values are the same and are shown in the plot below by the dashed black line.
+
+```{r fig.width=6,echo=F}
+plot(lasso.model)
+lasso.model$lambda.min==lasso.model$lambda.1se
+```
+
+## Prediction model 
+
+The prediction model is done with the test set.
+
+```{r eval=F}
+lasso.pred = predict(lasso.model,
+                     df_gene[-trainIDs,],
+                     s='lambda.1se',
+                     type='class')
+
+```
+
+## Accuracy, Kappa and model Coefficients
+
+```{r}
+Accuracy = mean(type[-trainIDs]==lasso.pred)
+KappaStatistic = Kappa(table(type[-trainIDs],lasso.pred))$Unweighted[1]
+coefficients = which(coef(lasso.model, s='lambda.1se')!=0)
+coefNames = coef(lasso.model, s='lambda.1se')@Dimnames[[1]][coefficients]
+coefficientsVal = coef(lasso.model, s='lambda.1se')@x
+names(coefficientsVal) = coefNames
+```
+
+For the model with one standard error from the minimum value, the kappa statistics and accuracy are as follows:
+
+```{r}
+Accuracy
+KappaStatistic
+```
+Both values are close to 1, indicating a very good model and predictive ability. 
+
+## Model coefficents
+
+The model coefficients with the respective gene numbers they represent are given by:
+
+```{r echo=F}
+coefficientsVal 
+```
+
+```{r child = 'BigData_HW2_2.Rmd'}
+```

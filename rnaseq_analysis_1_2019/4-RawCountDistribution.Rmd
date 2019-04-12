@@ -1,0 +1,143 @@
+---
+title: "Assessing Gene Raw Count Distribution"
+author: "Andreé Johnsson"
+date: "11/02/2019"
+output: html_document
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.path='Figs/'
+                      , include = TRUE
+                      , eval = TRUE
+                      , echo=TRUE
+                      , warning=FALSE
+                      , fig.align='center')
+```
+
+```{r}
+load(file ="~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/1.rawDataQA/0-RData_Storage/1-readInSalmon.RData")
+load(file="~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/1.rawDataQA/0-RData_Storage/4-RawCountDistribution.RData")
+```
+
+
+```{r echo=FALSE}
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(pander))
+```
+
+# QC analysis of the Raw Data Distribution
+
+The data is arranged in sample as columns and genes as rows. 
+```{r}
+pander(head(kg.salmon[1:5,1:3]))
+```
+
+
+## Check how many genes are never expressed
+```{r}
+sel <- rowSums(kg.salmon) == 0
+sprintf("%s%% percent (%s) of %s genes are not expressed",
+        round(sum(sel) * 100/ nrow(kg.salmon),digits = 1),
+        sum(sel),
+        nrow(kg.salmon))
+```
+
+
+## Gene Mean Raw Count Distribution
+
+```{r eval=FALSE}
+totalOriginalGeneMean <- apply(kg.salmon,1,function(x) log10(mean(x)))
+```
+
+```{r meanRawCountDist, fig.height=4,fig.width=6}
+ggplot(as.data.frame(totalOriginalGeneMean), aes(x = totalOriginalGeneMean)) +
+    geom_density(alpha=0.4,fill="darkgreen") +
+    labs(title = "Gene mean raw counts distribution"
+         , x = "Mean raw counts (log10)") + 
+    coord_cartesian(ylim = c(0, 0.5)) 
+```
+
+
+## Sample Gene Mean Raw Count Distribution
+
+The same is done for the individual samples
+```{r eval=FALSE}
+stacked_kg.salmon <- as.data.frame(stack(kg.salmon))
+colnames(stacked_kg.salmon) <- c("GeneID","NGI.ID","value")
+stacked_kg.salmon$value_log10 <- log10(stacked_kg.salmon$value)
+```
+
+```{r}
+pander(head(stacked_kg.salmon,3))
+```
+
+
+```{r eval=FALSE}
+# We decide the bad smaples by trail and error when plotting all
+# the samples at the same time
+lessGoodSamples = sort(apply(kg.salmon, 2, mean))[1:9]
+
+# We subset all of the less good samples
+stacked_kg.salmon_NotNormal = stacked_kg.salmon[stacked_kg.salmon[,"NGI.ID"] %in% names(lessGoodSamples),]
+```
+
+
+```{r eval=FALSE}
+# The label to be used for all plots
+densityPlotlabel <- labs(title = "Sample raw counts distribution", x = "Per gene raw counts (log10)")
+
+# Sample Raw Count Distribution
+# All Samples at the same time
+allsamp <-
+    ggplot(stacked_kg.salmon, aes(x=value_log10,col=NGI.ID)) +
+    geom_density() +
+    guides(col=FALSE) + 
+    densityPlotlabel +
+    coord_cartesian(xlim = c(0, 4.3), ylim = c(0,0.65)) 
+
+# Only the bad samples
+badsamp <-
+    ggplot(stacked_kg.salmon_NotNormal, aes(x=value_log10,col=NGI.ID)) +
+    geom_density() +
+    densityPlotlabel +
+    coord_cartesian(xlim = c(0, 4.3), ylim = c(0,0.65)) 
+
+# After removing the bad samples
+nobadsamp <-
+    ggplot(stacked_kg.salmon[!(stacked_kg.salmon$NGI.ID %in% stacked_kg.salmon_NotNormal$NGI.ID),]
+           , aes(x=value_log10,col=NGI.ID)) +
+    geom_density() +
+    densityPlotlabel +
+    guides(col=FALSE) +
+    coord_cartesian(xlim = c(0, 4.3), ylim = c(0,0.65)) 
+
+# Table showing the bad samples status.
+badSampleTable <-
+    sample_info[sample_info$Status!="good",-c(4,6)]
+
+```
+
+```{r sampleRawCountDistribution, fig.height=4, fig.width=6}
+#grid.arrange(allsamp, badsamp, nobadsamp, tableGrob(badSampleTable), nrow = 2)
+allsamp
+badsamp
+nobadsamp
+```
+NOTE: Most samples show similar trend. Some are shifted to the left, because they were not sequenced so deeply.
+
+By the shift in the normal distribution of respective sample, the samples deviating remarkably are classed as "bad" or "intermediate" the samples following the normal distribution are classed as "good".
+
+## The Diviating Samples to be extra carefull with:
+```{r}
+pander(badSampleTable)
+```
+
+```{r eval=FALSE}
+save.image("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/1.rawDataQA/0-RData_Storage/4-RawCountDistribution.RData")
+```
+
+
+```{r}
+sessionInfo()
+```
+

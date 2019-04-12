@@ -1,0 +1,60 @@
+---
+title: "Making the Median table"
+author: "Andreé Johnsson"
+date: "02/04/2019"
+output: html_document
+---
+
+# Loading libraries and sample information
+```{r}
+suppressPackageStartupMessages(library(magrittr))
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(DESeq2))
+suppressPackageStartupMessages(library(gridExtra))
+```
+
+
+```{r eval=FALSE}
+median_vst_alfredo_noBad_noBB_aware <-
+    read_csv("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/restart_Analysis_To_make_int_Understandable/0-Important-DataTables/vst_alfredo_noBad_noBB_aware.csv", col_names= TRUE)
+median_vst_alfredo_noBad_noBB_aware %<>% column_to_rownames(var="genes")
+#
+sample_info_alfredo_noBad_noBB <-
+    read_csv("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/restart_Analysis_To_make_int_Understandable/0-Important-DataTables/sample_info_alfredo_noBad_noBB.csv", col_names= TRUE)
+```
+
+# Returns the median of the replicates as a tibble and separates/relevels the Genotype and TimePoint
+```{r eval=FALSE}
+getMedian.vst <- function(vst,GT){
+    # Transposing the vst so that we have genes as columns in addition to giving a list of levels 
+    # to aggregate we kan take the median of these samples by condition and time i.e. the replicates.
+    median.vst.aware <- aggregate(t(vst), list(GT), median) 
+    # Now we separate the combined column of genotype and treatment, relevel 
+    # the variables and factorized them.
+    median.vst.aware %<>% as_tibble() %>% separate(Group.1, into = c("Genotype","TimePoint"),sep = "-")
+    median.vst.aware %>% mutate(
+        Genotype = factor(Genotype,levels = c("T89","SVP","FT")) ,
+        TimePoint = factor(TimePoint, levels= c("LD", "SDW1", "SDW2", "SDW3", "SDW10", "CTW10", "LD2")) )
+    median.vst.aware[,c("Genotype","TimePoint")] %>% map(~levels(.x))
+    return(median.vst.aware)
+}
+```
+
+
+```{r eval=FALSE}
+median_vst_alfredo_noBad_noBB_aware <-
+    getMedian.vst(vst_alfredo_noBad_noBB_aware,sample_info_alfredo_noBad_noBB$GT)
+```
+
+
+```{r eval=FALSE}
+dim(median_vst_alfredo_noBad_noBB_aware)
+```
+
+
+```{r eval=FALSE}
+median_vst_alfredo_noBad_noBB_aware %>%
+    write_csv("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/restart_Analysis_To_make_int_Understandable/0-Important-DataTables/median_vst_alfredo_noBad_noBB_aware.csv", col_names= TRUE)
+```
+
+

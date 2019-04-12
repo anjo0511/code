@@ -1,0 +1,30 @@
+
+
+# Task 3
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+When taking on a new task it is important to get a sense of the data one are working with. The Titanic data consists of 1309 observations and 12 variables, the variables consist of for example the age, class, and sex of the passenger, also the cabin number and whether they survived or not. All the variables can be seen in the table below.
+
+```{r echo=FALSE,out.width="50%",fig.align='center'}
+knitr::include_graphics('tesk3-table.png')
+
+```
+
+Surnames of all the passengers were extracted from the name variable and the number of unique surnames were calculated. With all the unique surnames, the size of a family was calculated as the sum of siblings and spouses in order to plot the family sizes with respect to survival. The death rate was higher for larger families than four people and also for a family size of one (i.e. singletons). Since the number of large families are comparatively fewer the family size variable is discretized into three levels, singletons, small families (2-4 people), and large families (more than 4 people). Due to the sparsity of the cabin variable, it was merged into a deck variable ranging from A-F.
+
+Sometimes rows or columns containing NA values are removed but this is not a good approach in this dataset since it contains few variables and fairly few observations.
+Missing values were replaced either with predicted values or using the mean, median, or mode. The prediction for missing ages was done by multiple imputation using chained equations (mice package). Since the distribution for the predicted ages looks almost exactly the same as the distribution for the known ages the MICE output can be used to predict age. 
+
+The relationship between age and survival rate was also analyzed. Plotting this relationship for separate sexes indicated that there was a higher death rate for men compared to women. When dividing the people based on age, where people under 18 was considered as children and 18 or older as adults, a higher death rate was observed for adults. The child-group had almost equal proportion of survivors and nonsurvivors. Additionally, survival rate for mothers and not mothers were compared where there was a higher proportion of survivors for people classified as mothers (with the conditions that the person was a female, over 18, had 1 or more children, and with a title not equal to “Miss”) compared to people classified as not mothers.
+
+Now all relevant missing values are handled and the dataset can be used to predict which passengers that survive. Prediction is done using randomForest. The first step is to split the data back into training and test set and then build our model based on the training set. The model uses Survived as the response variable and the variables Pclass, Sex, Age, SibSp, Parch, Farse, Embarked, Titel, FsizeD, Child, Mother as predictors. 
+By plotting the overall error rate and the error rate for “died” and “survived” in the same plot one can see that the overall error rate falls below 20% and that the model is much more successful predicting death than survival. 
+
+Gini measures the purity of a node, i.e. if it mainly contains single class observations where a low value indicates that the node is very pure. It can be used as a measure of importance if we consider its mean decrease of a variable when splitting the tree. The ranked importance was plotted for the variables where the Title variable was the most important, see plot below. The last step is to make predictions on the test set. 
+
+```{r echo=FALSE, fig.align='center',out.width="70%"}
+knitr::include_graphics('task3-barFig.png')
+```

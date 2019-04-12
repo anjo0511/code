@@ -1,0 +1,90 @@
+---
+title: "barchart_up_down_genes"
+author: "Andreé Johnsson"
+date: "03/04/2019"
+output: html_document
+---
+
+# Loading libraries
+```{r}
+suppressPackageStartupMessages(library(magrittr))
+suppressPackageStartupMessages(library(tidyverse))
+```
+
+# Load the sig gene matrix
+```{r}
+trimmed_log2FC_only_sig_genes_matrix <-
+    read_csv("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/restart_Analysis_To_make_int_Understandable/0-Important-DataTables/trimmed_log2FC_only_sig_genes_matrix.csv", col_names = TRUE,guess_max = 34043)
+trimmed_log2FC_only_sig_genes_matrix %<>% column_to_rownames(var="genes")
+```
+
+This function goes througth the log2FC matrix and counts the up/down reg genes and output a tidy df ready to plot
+```{r}
+upp_down_df <- function(df){
+    df.1 <-
+        map(df,~ c("Up" = sum(.x > 0,na.rm = TRUE),
+           "Down" = sum(.x < 0,na.rm = TRUE))) %>%
+        do.call(rbind,.) %>%
+        as.data.frame() %>% 
+        rownames_to_column(var="TimePoint")
+    
+    df.1 %<>%  separate(TimePoint,into = c("Genotype","TimePoint"),sep="_" ,extra = "merge")
+    df.1[str_detect(df.1$TimePoint,"_FT") ,"Genotype" ] = "SVP_FT"
+    df.1[,"TimePoint"] = str_remove(df.1$TimePoint,"_FT")
+    df.1 %<>% mutate(
+        Genotype = factor(Genotype,levels = c("SVP","FT","SVP_FT")) ,
+        TimePoint = factor(TimePoint,levels = c("SDW1_LD","SDW2_SDW1", "SDW3_SDW2", "SDW10_SDW3"
+                                                  , "CTW10_SDW10", "LD2_CTW10", "LD", "SDW1"
+                                                  , "SDW2","SDW3", "SDW10", "CTW10", "LD2")) )
+    
+    df.1 %<>% gather(key,n,3:4)
+    df.1 %<>% mutate(key= factor(key,levels = c("Up","Down")))
+    return(df.1)
+}
+```
+
+# Double check that we have the levels wanted
+```{r}
+tidy_up_down_df = upp_down_df(trimmed_log2FC_only_sig_genes_matrix)
+map(tidy_up_down_df,~levels(.x)) 
+```
+
+Plots a barchart of the up/down reg_genes dependent of the given sub= Genotype, or
+plots all if non are given.
+```{r}
+plot_up_down_genes.1 <- function(df,sub = NULL){
+    # Plots a barchart of tydydata were, timepoints(names),key(pos/neg) and n(integer) are
+    # the column names
+    if(!is.null(sub)){
+        df %<>% filter(Genotype==sub)
+    }
+    plot.1 <-
+        ggplot(df,aes(x=TimePoint, y=n, fill = key)) +
+        geom_bar(stat = "identity", position = "dodge") +
+        facet_wrap(~Genotype,scales="free") +
+        theme_bw() +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+        scale_fill_brewer(palette="Set1") +
+        labs(title= "Number of DEGs per subsequent timepoint",
+             y="No. of DEGs",x= "Timepoint",fill="Regulation")
+    
+    return(plot.1)
+}
+```
+
+
+```{r}
+plot_up_down_genes.1(tidy_up_down_df)
+plot_up_down_genes.1(tidy_up_down_df,sub = "SVP")
+```
+
+# Saves only the plot with all three interactions included
+```{r}
+png("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/restart_Analysis_To_make_int_Understandable/SVP_FT_up_down_bar.png",res = 100, units = "cm", width = 30, height = 15 )
+plot_up_down_genes.1(tidy_up_down_df)
+dev.off()
+```
+
+
+
+

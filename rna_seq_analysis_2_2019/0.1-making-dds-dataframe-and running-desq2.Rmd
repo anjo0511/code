@@ -1,0 +1,86 @@
+---
+title: "Making a dds dataframe and running Desq2"
+author: "Andreé Johnsson"
+date: "02/04/2019"
+output: html_document
+---
+
+# Loading libraries and sample information
+```{r}
+suppressPackageStartupMessages(library(magrittr))
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(DESeq2))
+suppressPackageStartupMessages(library(gridExtra))
+```
+
+# We have saved the count matrix as tsv 
+```{r eval=FALSE}
+kg.salmon <- read_tsv("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/restart_Analysis_To_make_int_Understandable/0-Important-DataTables/kg.salmon.tsv", col_names = TRUE)
+kg.salmon %<>% column_to_rownames(var="genes")
+```
+# We have saved the sample dataframe as csv 
+```{r eval=FALSE}
+sample_info_alfredo_noBad_noBB <- read_csv("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/restart_Analysis_To_make_int_Understandable/0-Important-DataTables/sample_info_alfredo_noBad_noBB.csv", col_names = TRUE)
+```
+
+# Relevel the important genotypes and timepoints
+```{r eval=FALSE}
+sample_info_alfredo_noBad_noBB %<>%
+    transmute(NGI.ID,
+           Genotype = factor(Genotype,levels = c("T89","SVP","FT")) ,
+           TimePoint = factor(TimePoint, levels= c("LD", "SDW1", "SDW2", "SDW3", "SDW10", "CTW10", "LD2")),
+           GT = factor(GT,levels = c("T89-LD", "T89-SDW1", "T89-SDW2","T89-SDW3","T89-SDW10"
+                                     ,"T89-CTW10","T89-LD2", "SVP-LD", "SVP-SDW1", "SVP-SDW2"
+                                     ,"SVP-SDW3", "SVP-SDW10", "SVP-CTW10" ,"SVP-LD2","FT-LD"
+                                     ,"FT-SDW1", "FT-SDW2", "FT-SDW3","FT-SDW10","FT-CTW10","FT-LD2") ) )
+
+sample_info_alfredo_noBad_noBB %>% map(~levels(.x))
+```
+
+# Subsetting the countMatrix for all samples to only include "Afredo" dataset
+```{r eval=FALSE}
+kg_alfredo_noBad_noBB <- kg.salmon %>% select(sample_info_alfredo_noBad_noBB$NGI.ID)
+```
+
+# Reordering the rows in sample_info to match with the columns in the countMatrix
+```{r eval=FALSE}
+sample_info_alfredo_noBad_noBB <-
+    sample_info_alfredo_noBad_noBB[
+        match(sample_info_alfredo_noBad_noBB$NGI.ID,colnames(kg_alfredo_noBad_noBB)),]
+```
+
+# Creating a dds matrix with all the relevant information in with the right levels
+```{r eval=FALSE}
+dds_alfredo_noBad_noBB <- DESeqDataSetFromMatrix(
+    countData = kg_alfredo_noBad_noBB,
+    colData = sample_info_alfredo_noBad_noBB,
+    design = ~ Genotype + TimePoint + Genotype:TimePoint )
+``` 
+# Now we run the D.E
+```{r eval=FALSE}
+dds_alfredo_noBad_noBB %<>%  DESeq()
+```
+
+```{r}
+resultsNames(dds_alfredo_noBad_noBB)
+```
+
+# Variance Stabilising Transformation with respect to the model
+```{r eval=FALSE}
+vsd_alfredo_noBad_noBB_aware <- varianceStabilizingTransformation(dds_alfredo_noBad_noBB, blind = FALSE)
+vst_alfredo_noBad_noBB_aware <- assay(vsd_alfredo_noBad_noBB_aware)
+vst_alfredo_noBad_noBB_aware <- vst_alfredo_noBad_noBB_aware - min(vst_alfredo_noBad_noBB_aware)
+```
+
+
+
+```{r eval=FALSE}
+vst_alfredo_noBad_noBB_aware %>% as.data.frame() %>% rownames_to_column(var="genes") %>%
+    write_csv("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/restart_Analysis_To_make_int_Understandable/0-Important-DataTables/vst_alfredo_noBad_noBB_aware.csv", col_names= TRUE)
+```
+
+
+```{r}
+resultsNames(dds_alfredo_noBad_noBB)
+```
+

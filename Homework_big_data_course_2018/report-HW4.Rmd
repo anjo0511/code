@@ -1,0 +1,222 @@
+---
+title: "Homework 4 - Unsupervised learning techniques"
+author: "Andreé Johnsson"
+date: "December 27, 2018"
+output:
+  pdf_document:
+    toc: yes
+  html_document: default
+---
+```{r include=F}
+#save.image(file="HW4.RData")
+load("HW4.RData")
+```
+
+# Introduction
+
+This tasks main purpose is to practice unsupervised clustering techniques. The data set provided by the ISLR library is genetic microarray expression data from 64 cell lines and 9 different different cancer tissues, the total amount of genes measured are 6830. 
+
+```{r include=F}
+library("ISLR")
+library(tidyverse)
+library(cluster)
+library(factoextra)
+```
+
+# Task 1 PCA for data
+
+The first task is to reduce the number of variables (6830 genes) by a computing the principle components of the data set. This is done by the built in method prcomp in R. Then we plot the two dimensional plots of the first three components to get an overview of the clustering by cancer type. Lastly we plot both the percentage variance explained by the first components and the cumulative variance to see the number of relevant dimensions of our data set. 
+
+## Import the data and get an overview of cancer subtypes
+
+The data is imported and the initial dimensions of the data set is 64*6830, a table shows the number of cancer tissue types present in our 64 observations. 
+
+```{r}
+nci.labs = NCI60$labs
+nci.data = NCI60$data
+dim(nci.data)
+```
+
+```{r}
+table(nci.labs)
+```
+
+## Principle component analysis
+
+The initial data set dimensions are reduced by computing the PCs that explain the data the most. After computing the PCs, the first three are plotted to get an overview of the data. As can be seen below, the cancer type Melanoma in blue and Leukemia in green seems to have the strongest clustering pattern as the observations forms individual groups in the PC1 vs PC2 plot. In the second plot Leukemia in green and Colon cancer in brown are well separated from the rest of the sub types. The results suggests that the groups that can be separated visually by the PCs and have a different expression pattern than the rest of the observations.
+
+```{r}
+pr.out = prcomp(nci.data,scale=T)
+```
+
+```{r include=F}
+Cols = function(vec){
+    cols = rainbow(length(unique(vec)))
+    return(cols[as.numeric(as.factor(vec))])
+    }
+```
+
+```{r echo=F, fig.align='center', out.height="6cm"}
+p <- ggplot(data.frame(x = pr.out$x[,1], y = pr.out$x[, 2], col = factor(nci.labs)),
+            aes(x = x, y = y, col = col)) +
+    geom_point(size = 3)
+p + labs(colour = "Cancer type") + labs(x = "PC1") + labs(y = "PC2")
+p <- ggplot(data.frame(x = pr.out$x[,1], y = pr.out$x[, 3], col = factor(nci.labs)),
+            aes(x = x, y = y, col = col)) +
+    geom_point(size = 3)
+p + labs(colour = "Cancer type") + labs(x = "PC1") + labs(y = "PC3")
+```
+
+## Importance of the PCs
+
+To address the relevance of the PCs we make both a percentage variation explained plot and a cumulative variance plot. The former is used to see the most relevant PCs for the data set and the cutoff limit on when the PCs becomes less useful i.e when difference in variance explained is more or less constant. The latter is useful together with the rule of thumb of 80% as how many PCs one should include in later model building to get a reliable model. In this case this plot is less relevant as the first plot shows only the very first components to be of great importance and also we will not make any models.
+```{r echo=F,fig.align='center',fig.width=5,fig.height=3}
+pve=100*pr.out$sdev^2/sum(pr.out$sdev^2)
+par(mfrow=c(1,2))
+plot(pve, type="o", ylab="PVE", xlab="Principal Component", col="blue")
+plot(cumsum(pve), type="o", ylab="Cumulative PVE", xlab="Principal Component",
+col="brown3")
+```
+
+# Task 2 Clustering
+
+## Task 2a: Hierarhical clustering the observations
+In this task we will perform hierarchical clustering on the data using different linkage methods and determine how well they perform in clustering the cancer tissue types into distinct cancer types.
+```{r include=F}
+library(cluster)
+```
+
+
+Using the agnes function from the package cluster we can perform agglomerative hierarchical clustering and calculate the agglomerative coefficient. The coefficient measures the clustering structure. The closer it is to 1, the better the clustering structure. The linkage methods tested are complete, single, average, and ward linkage. We also checked the values of the coefficients for scaled data (see agglomerativeCoefScaled) but since these values were lower for all methods compared to not scaling the data, we decided to keep the data unscaled.
+
+```{r}
+linkages <- c("average", "single", "complete", "ward")
+
+agglomerativeCoef = c()
+for(link in linkages) {
+  coef = agnes(dist(nci.data), method = link)$ac
+  agglomerativeCoef = append(agglomerativeCoef, coef)
+}
+names(agglomerativeCoef) <- c("average", "single", "complete", "ward")
+agglomerativeCoef
+```
+
+```{r include = F}
+linkages <- c("average", "single", "complete", "ward")
+
+agglomerativeCoefScaled = c()
+for(link in linkages) {
+  coef = agnes(dist(scale(nci.data)), method = link)$ac
+  agglomerativeCoefScaled = append(agglomerativeCoefScaled, coef)
+}
+names(agglomerativeCoefScaled) <- c("average", "single", "complete", "ward")
+```
+
+```{r}
+agglomerativeCoefScaled
+```
+
+According to the agglomerative clustering coefficient, the best clustering structure is found using the ward linkage. We therefore perform a hierarcical clustering with ward linkage and test a different number of clusters. From the plots below we can see that cutting the tree at four clusters generates large groups with mixed cancer types, whereas cutting the tree at a height corresponding 8 groups generates more homogenous groups according to the real cancer types. If we would further cut the tree into 10 clusters, we would add groups that are not homogeneous and more or less meaningless. We thereby select 8 clusters as the best cut.
+```{r, fig.height=3, fig.width=7, echo = F, fig.align='center'}
+nClust = c(4, 8, 10)
+hc.ward = agnes(dist(nci.data), method = "ward")
+for (n in nClust){
+    name = paste("Dendogram cut into", n, "groups")
+    pltree(hc.ward, cex = 0.5, hang = -1, main = name, labels = nci.labs) 
+    rect.hclust(as.hclust(hc.ward), k = n, border = "red")
+}
+```
+
+We can also look at a table for how well the clustering works using 8 clusters. As can be seen, cluster number 2, 4, and 6 are homogeneous groups which represents cancer tissue types RENAL, LEUKEMIA, and COLON.
+```{r}
+hc.clusters = cutree(as.hclust(hc.ward), k = 8)
+table(hc.clusters, nci.labs)
+```
+
+
+```{r include = F}
+nci.data.labs = NCI60$data
+rownames(nci.data.labs) = paste(nci.labs,".", 1:length(nci.labs), sep = "")
+rownames(nci.data.labs)
+```
+Plotting the eight clusters in two dimensions generates the plot below. We can see that especially cluster number 8 (containing MELANOMA and BREAST) is distant from the other groups in this space.
+
+```{r, fig.width=5, fig.height=3, echo = F, fig.align='center'}
+fviz_cluster(list(data = nci.data.labs, cluster = hc.clusters), repel = TRUE, labelsize=6)
+```
+
+
+## Task 2b: K-Means clustering the observations
+We can now also try to perform k-means clustering using 8 clusters and compare it with the hierarchical clustering from before.
+```{r, echo=F}
+set.seed(2)
+km.out=kmeans(nci.data, 8, nstart=20)
+km.clusters=km.out$cluster
+```
+
+Here we compare the number of tissues assigned to each cluster for the hierarchical clustering (hc.clusters) and K-Means clustering (km.clusters) using 8 clusters.
+```{r}
+table(km.clusters, hc.clusters)
+```
+
+We can observe that hc.cluster number 7 and km.cluster number 2 both have classified 4 tissues to the same group, which also corresponds to the same observations in both groups. The real labels were although from different groups. Furthermore, km.clusters number 3, 4, 5, 6, and 8 had the same observations as hc.clusters number 1, 8, 5, 4, and 6 respectively. The clustering result is similar but not identical.
+```{r}
+which(hc.clusters==7)
+which(km.clusters==2)
+nci.labs[49:52]
+```
+
+Comparing the km.clusters with the actual labels showed that clusters 6 and 8 are homogenous and corresponds to LEUKEMIA and COLON respectively.
+```{r, echo=F}
+table(km.clusters, nci.labs)
+```
+
+The MELANOMA and BREAST-cluster was also well separated from the other clusters, similar to the hierarchical clustering, when plotting the data in 2 dimensions. Moreover, there are less overlap between the clusters in this dimension compared to the hierarchical clustering.
+```{r fig.width=5, fig.height=3, echo=F, fig.align='center'}
+fviz_cluster(list(data = nci.data.labs, cluster = km.clusters), repel = TRUE, labelsize=6)
+```
+
+## Task 2c: Various numbers of clusters
+
+We can evaluate the both of the clustering methods using 8 clusters by looking at the silhouette plot and the average silhouette width. The calculated silhouette width for the hierarchical clustering was 0.11 and for the K-Means 0.12. Both are very small which does not indicate a good clustering. The width should be close to one for a good clustering and above 0.5 for an acceptable clustering. It is although not a negative width which otherwise would indicate that observations are placed in the wrong cluster.
+
+```{r, fig.width=10, fig.height=4, echo=F, fig.align='center'}
+par(mfrow=c(1,2))
+plot(silhouette(hc.clusters, dist(nci.data)), main = "          Hierarchical clustering")
+plot(silhouette(km.clusters, dist(nci.data)), main = "          K-Means")
+par(mfrow=c(1,1))
+```
+
+The within groups sum of squares (wss) of different Ks for the K-Means algorithm are plotted in the scree plot below. As can be seen, the wss decreases when using more clusters and no obvious elbow can be seen. If we would select any K from this plot it would be in the span from about 5-10.
+```{r, include=F, eval=F}
+low = 1
+high = 25
+j = 1
+wss <- rep(0, (high-low+1))
+for (i in low:high) {
+    wss[j] <- sum(kmeans(nci.data, centers = i, nstart = 20)$withinss)
+    j = j+1
+    }
+```
+
+```{r, fig.height=3, fig.width=4, echo=F, fig.align='center'}
+plot(low:high, wss, type = "b", xlab = "Number of clusters", ylab = "Within groups sum of squares")
+```
+
+Suppose we would increase the number of clusters to 15 for both the hierarchical clustering and the K-Means clustering since we saw that the wss decreases the more clusters we use in K-Means. From the plot below we can see only a tiny difference in the width which still is very low for both clustering methods.
+```{r, fig.width=10, fig.height=7, echo = F, fig.align='center'}
+hc.ward = agnes(dist(nci.data), method = "ward")
+hc.clusters = cutree(as.hclust(hc.ward), k = 15)
+
+set.seed(2)
+km.out=kmeans(nci.data, 15, nstart=20)
+km.clusters=km.out$cluster
+
+par(mfrow=c(1,2))
+plot(silhouette(hc.clusters, dist(nci.data)), main = "          Hierarchical clustering")
+plot(silhouette(km.clusters, dist(nci.data)), main = "          K-Means")
+par(mfrow=c(1,1))
+```
+
+# Conclusions
+Choosing 8 clusters for the clustering methods did not perform optimally but made some homogeneous clusters of the true tissue for both methods (3 for hierarchical clustering and 2 for K-Means). Still the silhouette width for both methods were very low and the within groups sum of squares suggested that increasing the number of clusters would decrease the wss. However we do not want as many clusters as the number observations. Using the hierarchical clustering with 8 clusters is therefore as close to optimal as we get for clustering this data using these methods.

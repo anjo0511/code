@@ -1,0 +1,158 @@
+---
+title: "Extracting the \"alfredo\" dataset and enlarging the metadata from sample_info"
+author: "Andreé Johnsson"
+date: "12/02/2019"
+output: html_document
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.path='Figs/'
+                      , include = TRUE
+                      , eval = TRUE
+                      , echo=TRUE
+                      , warning=FALSE
+                      , fig.align='center')
+```
+
+```{r}
+load(file ="~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/1.rawDataQA/0-RData_Storage/1-readInSalmon.RData")
+```
+
+
+```{r echo=FALSE}
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(magrittr))
+suppressPackageStartupMessages(library(pander))
+```
+
+```{r}
+str(sample_info)
+```
+
+# Filtering for the "alfredo" dataframe and enlarging the matadata 
+
+We want to take a look at the information for only the "alfredo" data set.
+```{r eval=FALSE}
+sample_info.alfredo <- filter(sample_info,sample_info$Dataset.ID=="alfredo")
+```
+
+Now lets expand the User.ID columns to get some more information of the growth conditions
+```{r eval=FALSE}
+sample_info.alfredo<- separate(sample_info.alfredo, col = User.ID
+                                   , into=c("Genotype","Treatment")
+                                   , sep=" ",fill = "right", remove = FALSE)
+
+sample_info.alfredo <- separate(sample_info.alfredo, col = Treatment
+                                    , into=c("Treatment","Replicate.ID")
+                                    , sep="-",fill = "right", remove = TRUE)
+
+```
+
+```{r}
+#str(sample_info.alfredo)
+```
+
+Now we make the Genotype and Treatment to be factors and also relevel the Genotype to have 
+as default T89.
+
+```{r eval=FALSE}
+sample_info.alfredo$Genotype %<>%
+    as.factor()
+
+sample_info.alfredo$Genotype <- relevel(sample_info.alfredo$Genotype,"T89")
+
+sample_info.alfredo$Treatment %<>%
+    as.factor()
+```
+
+```{r}
+str(sample_info.alfredo)
+```
+
+We give the missing replicate ID the ID of zero
+```{r}
+sample_info.alfredo$Replicate.ID %<>%
+    ifelse(is.na(.),0,.)
+
+#ifelse(is.na(sample_info.alfredo.noBad$Replicate.ID),0,sample_info.alfredo.noBad$Replicate.ID)
+```
+
+
+Setting an order for the tratment factors reprecenting the growing seasson 
+This will maybe be done in the future but for now we stick to Treatment just being a factor.
+```{r}
+#sample_info.alfredo$Treatment %<>% 
+#    factor(. , levels= c("LD", "SDW1", "SDW2" ,"SDW3","SDW10", "CTW10", "BB", "LD2")
+#                           , ordered = TRUE)
+
+#factor(sample_info.alfredo$Treatment)[1]
+```
+
+Now we get rid of the real bad samples leaving on only the "good" and "intermediate" samples
+```{r eval=FALSE}
+sample_info.alfredo.noBad <- filter(sample_info.alfredo,sample_info.alfredo$Status!="bad")
+unique(sample_info.alfredo.noBad$Status)
+```
+```{r eval=FALSE}
+droplevels(sample_info.alfredo.noBad$Status)
+```
+
+# How many replicates do we have left? ( -3 *T89 LD2* and an excess of *T89 LD*)
+
+Now we take a look at how many replicates we have for each treatment and phenotype
+Comparing the two tables we see that we have removed 3 samples from the *T89 LD2*.
+and also that we have an execs of T89 LD. 
+
+## All samples from the "alfredo" dataset
+```{r}
+pander(table(sample_info.alfredo[,c("Genotype","Treatment")])) 
+#pander(table(sample_info.alfredo.noBad[,2:3]))
+```
+
+## Only the "good" and "intermediate" samples from the "alfredo" dataset
+```{r}
+pander(table(sample_info.alfredo.noBad[,c("Genotype","Treatment")]))
+```
+
+Saving the separated data
+```{r eval=FALSE}
+write.csv(sample_info.alfredo
+          , file = "~/Project-Git-Files-aspen-FTL1-growth-cessation/doc/sample_info_alfredo.csv"
+          , row.names = FALSE)
+
+write.csv(sample_info.alfredo.noBad
+          , file = "~/Project-Git-Files-aspen-FTL1-growth-cessation/doc/sample_info_alfredo_noBad.csv"
+          , row.names = FALSE)
+```
+
+```{r eval=FALSE}
+save.image(file =
+               "~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/1.rawDataQA/0-RData_Storage/1-readInSalmon.RData")
+```
+
+Why do we have 9 replicates? could i be separate batches?
+```{r}
+T89.LD.ID <- sample_info.alfredo.noBad %>% filter(Genotype =="T89",Treatment=="LD") %>% select(NGI.ID)
+T89.LD.ID$NGI.ID %>% 
+    paste(collapse= "|") %>% 
+    grep(file.paths, value = TRUE) %>%
+    str_remove("/mnt/picea/home/ajohnsson/Data-Files-aspen-FTL1-growth-cessation/4.salmon/") %>%
+    str_remove("/quant.sf") %>%
+    as.data.frame() %>%
+    mutate(ID = rep("T89-LD",9)) %>%
+    rename("File_Paths"=".") %>%
+    write_tsv("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/2.Differential_Expression_of_the_alfredoDataset/9_replicates_file_names.tsv")
+
+```
+
+
+
+## Finnaly the sample_info.alfredo.noBad looks like this:
+```{r}
+as_tibble(sample_info.alfredo.noBad)
+```
+
+```{r}
+sessionInfo()
+```
+

@@ -1,0 +1,120 @@
+---
+title: "Building the Count matrix from Salmon quantification data"
+author: "Andreé Johnsson"
+date: "11/02/2019"
+output: html_document
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.path='0-Figs/'
+                      , include = TRUE
+                      , eval = TRUE
+                      , echo=TRUE
+                      , warning=FALSE
+                      , fig.align='center')
+```
+
+This procedure is derived from 
+<https://bioconductor.org/packages/release/bioc/vignettes/tximport/inst/doc/tximport.html/>
+
+```{r}
+load(file ="~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/1.rawDataQA/0-RData_Storage/1-readInSalmon.RData")
+```
+
+```{r echo=FALSE}
+suppressPackageStartupMessages(library(magrittr))
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(readr))
+suppressPackageStartupMessages(library(tximport))
+suppressPackageStartupMessages(library(pander))
+```
+
+Loading the sample information
+```{r eval=FALSE}
+sample_info <- 
+    read_csv("~/Git/UPSCb/projects/aspen-FTL1-growth-cessation/doc/OVE.Nilsson_18_01_sample_info.csv"
+             , col_names = TRUE)
+```
+
+```{r}
+pander(head(sample_info,3))
+```
+
+We read in the files extension names recursively searching for the "quant.sf" files in the
+4.salmon directory. Here create a named vector pointing to the quantification files.
+```{r eval=FALSE}
+file.paths <- list.files("~/Data-Files-aspen-FTL1-growth-cessation/4.salmon"
+                   , recursive = TRUE
+                   , pattern = "quant.sf"
+                   , full.names = TRUE)
+```
+
+Now we name the file extensions the same as the NGI.ID to know which sample is which.
+```{r}
+names(file.paths) <- str_extract(file.paths,"P[0-9]{5}_[0-9]{3}")
+head(file.paths,2)
+```
+
+Now we reorder the read sample_info dataframe to match with the file names order
+```{r eval=FALSE}
+sample_info <- sample_info[match(names(file.paths),sample_info$NGI.ID),] 
+```
+
+Lets read in the tx2gene, this is the refference transcriptome and assosiates a 
+transcipt ID to a gene ID in column 1 and 2 respectively. Important to notice is that 
+many transcripts with unique IDs may map to the same gene. Hence the Read/Gene ID mapping is ambiguous. 
+
+```{r eval=FALSE}
+tx2gene <- 
+    read_tsv("/mnt/picea/storage/reference/Populus-tremula/v1.1/indices/kallisto/tx2gene.tsv"
+               , col_names = c("Transcipt.ID","Gene.ID"))
+              
+```
+```{r}
+pander(head(tx2gene,3))
+```
+
+Lets import the transcript level estimates, by specifying the txt2gene file the type of method "salmon",
+we are able to quantify the reads. The intresting thing is that after reading in the quantified data we
+obtain the meassage: "transcripts missing from tx2gene: 883".
+
+```{r eval=FALSE}
+txi.salmon <- tximport(files = file.paths
+                       , type = "salmon"
+                       , txOut = TRUE)
+```
+
+This is then the count matrix, which tells us how many reads per gene in every sample we have.
+We also round the count metrix to integers.
+```{r eval=FALSE}
+kg.salmon <- round(summarizeToGene(txi.salmon, tx2gene)$counts)
+```
+
+```{r}
+pander(head(kg.salmon[1:5,1:3]))
+```
+
+This procedure produces a count matrix which is the same as with the prevously provided sprict BiologicalQA.R but in a more comprehensive way. (I have checked is the same by all.equal() function)
+
+
+Export the raw data to CSV
+```{r eval=FALSE}
+dir.create(file.path("analysis","salmon"),showWarnings = FALSE, recursive = TRUE)
+write.csv(kg,file = "analysis/salmon/raw-unnormalised-gene-expression_data.csv")
+```
+
+
+```{r}
+kg.salmon %>% as.data.frame() %>% rownames_to_column(var="genes") %>% 
+    write_tsv("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/restart_Analysis_To_make_int_Understandable/0-Important-DataTables/kg.salmon.tsv", col_names = TRUE)
+```
+
+
+```{r eval=FALSE}
+save.image(file ="~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/1.rawDataQA/0-RData_Storage/1-readInSalmon.RData")
+```
+
+```{r}
+sessionInfo()
+```
+

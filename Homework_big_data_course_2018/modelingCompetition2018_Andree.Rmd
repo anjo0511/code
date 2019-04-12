@@ -1,0 +1,155 @@
+---
+title: "Modeling Competition 2018, modeling Zalando's fashion MNIST by neuralNet"
+author: "Andreé Johnsson"
+date: "December 26, 2018"
+output: html_document
+---
+
+# Introduction
+We chosen to implement a neural network to model the MNist fashion data. The package used is neuralnet in R. This package does not allow the regular R formula input (y~.), hence we need to make one formula ourselfs. The first few formular rearange the data so that it is scaled and each class is equally represented in addition to replacing the response column by binary hotvectors. One does not need to change anything here. 
+
+The function called nuralNetReady calls on all the functions required to obain a fixed data frame to use in the neuralnet function. This function takes in the original dataframe and how many samples of each class one wants to include in the dataframe as arguments. 
+
+Later on we divide the new dataframe in train and test set by 80/20.
+
+## How to use witth another dataset
+To use with a different dataset one only need to spacify the name of it on line 111 where this line looks like : 
+
+dataSample = nuralNetReady(df=data, howMany = 600)
+
+Here one changes the data to another dataframe and howMany is the number of samples from each class that will be included in the data sample so that the data is balanced.
+
+# Data rearangement 
+
+```{r include=F}
+library(neuralnet)
+```
+
+```{r}
+returnSubset = function(df=data,howMany=500){
+    reSampling = c()
+    for (i in seq(10)){
+        set.seed(2018)
+        IDs = sample(which(df[,1]==i-1)
+                     , howMany, replace = F)
+        reSampling = append(reSampling,IDs)
+        
+        }
+    data.sample = df[reSampling,]
+    return(data.sample)
+    }
+```
+
+
+```{r}
+scaleDataFrame = function(df){
+    scl <- function(x){
+        (x - min(x))/(max(x) - min(x)+0.000001)}
+    
+    df[,-1] = apply(df[,-1],2,scl)
+
+    return(df)
+    }
+```
+
+
+```{r}
+responseToHotVector = function(df){
+    pixels = df[,-1]
+    keys = df[,1]
+    df_response = c()
+    for (i in 0:9){
+        hotVector = ifelse(keys==i,1,0)
+        df_response = cbind(df_response,hotVector)
+        }
+    colnames(df_response)=
+        c("clothing_0","clothing_1","clothing_2","clothing_3","clothing_4"
+          ,"clothing_5","clothing_6","clothing_7","clothing_8","clothing_9")
+    
+    df_total = cbind(df_response,pixels)
+    return(df_total)
+    }
+```
+
+
+```{r}
+makeStringFunction = function(df){
+    response =paste(colnames(df)[1:10],collapse ="+")
+    pixel =paste(colnames(df)[-(1:10)],collapse ="+")
+    formula =as.formula(paste(response,pixel,sep = "~"))
+    return(formula)
+}
+```
+
+
+```{r}
+# Returns scaled dataframe with hotvector as response
+nuralNetReady = function(df=data,howMany=500){
+    subset = returnSubset(df,howMany)
+    subset = scaleDataFrame(subset)
+    subset = responseToHotVector(subset)
+    }
+```
+
+```{r}
+predictionAcc = function(model,newdataset,oldKeysHotVector){
+    set.seed(2018)
+    prediction  = compute(model,newdataset)
+    pred_df = prediction$net.result
+    
+    colnames(pred_df) =
+        c("face_0","face_1","face_2","face_3","face_4"
+          ,"face_5","face_6","face_7","face_8","face_9")
+    
+    original_values <- max.col(oldKeysHotVector)-1
+    predMax <- max.col(pred_df)-1
+    mean(predMax == original_values)
+    }
+```
+
+# Train, Testset and ready to build a neural network
+
+Here one provides the dataset and how many samples of each class it should include. Later we divide the dataset into train and test set. Finnaly we make the formula to put in the neuralnet.
+
+```{r}
+dataSample = nuralNetReady(df=data, howMany = 600)
+dim(dataSample)
+set.seed(2018)
+trainIDs = sample(nrow(dataSample),nrow(dataSample)*0.8)
+train = dataSample[trainIDs,]
+dim(train)
+test = dataSample[-trainIDs,]
+dim(test)
+formula = makeStringFunction(train)
+```
+
+
+## Making the nauralnet model
+
+hidden = 140 yields 0.8325% in test set (howMany = 400)
+hidden = 140 yields 0.8225% in test set (howMany = 600)
+
+
+We provide the test data and chose 140 units on one hidden layer as the best choise.
+```{r}
+set.seed(2018)
+neuralModel = neuralnet(data=train,
+                        formula=formula,
+                        linear.output=F,
+                        likelihood = T,
+                        err.fct = "ce",
+                        hidden = c(140),
+                        lifesign = "full")
+```
+
+## Testing the model
+
+Predictions on the training set, no doubt this should be 100%. Out put Accuracy.
+```{r}
+predictionAcc(neuralModel,train[,-(1:10)],train[,1:10])
+```
+
+Prediction on the test set. Out put Accuracy.
+```{r}
+predictionAcc(neuralModel,test[,-(1:10)],test[,1:10])
+```

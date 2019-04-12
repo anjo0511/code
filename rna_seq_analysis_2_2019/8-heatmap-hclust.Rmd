@@ -1,0 +1,160 @@
+---
+title: "Heatmap of The Median Vst"
+author: "Andreé J"
+date: "09/04/2019"
+output: html_document
+---
+
+# Loading libraries
+```{r}
+suppressPackageStartupMessages(library(magrittr))
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(gplots))
+suppressPackageStartupMessages(library(RColorBrewer))
+suppressPackageStartupMessages(library(devtools))
+source_url("https://raw.githubusercontent.com/obigriffith/biostar-tutorials/master/Heatmaps/heatmap.3.R")
+```
+
+
+```{r}
+median_vst_alfredo_noBad_noBB_aware <-
+    read_csv("0-Important-DataTables/median_vst_alfredo_noBad_noBB_aware.csv", col_names = TRUE)
+```
+
+# Save the sample info to colour later
+```{r}
+df.GT <-
+    median_vst_alfredo_noBad_noBB_aware %>%
+    select(Genotype,TimePoint)
+
+df.GT$TimePoint %<>%  factor(levels = c("LD","SDW1","SDW2","SDW3"
+                             , "SDW10","CTW10","LD2"))
+df.GT$Genotype %<>%  factor(levels = c("T89","SVP","FT"))
+```
+
+# Get rid of the unneccecary columns
+```{r}
+median_vst_alfredo_noBad_noBB_aware %<>%
+    mutate(rowname = map2(Genotype
+                          , TimePoint, ~paste(.x, .y
+                                              , sep=" ") )) %>%
+    select(-Genotype,-TimePoint) %>%
+    column_to_rownames(var="rowname") %>%
+    t() 
+```
+
+
+```{r}
+var.per.gene.sorted <-
+    median_vst_alfredo_noBad_noBB_aware %>%
+    apply(1,var) %>%
+    sort(decreasing = TRUE) %>%
+    .[.>0] # Take away those genes with variance of zero
+    
+summary(var.per.gene.sorted)
+sum(var.per.gene.sorted > 0.352606) #Mean , (7522 genes)
+```
+
+```{r}
+sel <- (rownames(median_vst_alfredo_noBad_noBB_aware) %in% names(var.per.gene.sorted[1:7522]))
+
+z.no.scale <- median_vst_alfredo_noBad_noBB_aware[sel,]
+dim(z.no.scale)
+```
+
+# Before scaling we see tha the distribution is left-skewed due to most of the samples having a low expression, after scaling it seems quite balanced.
+
+```{r}
+z <- t(scale(t(z.no.scale))) 
+quantile(as.matrix(z.no.scale))
+quantile(as.matrix(z))
+```
+
+# Plot the heatmap
+
+# Making own function defining pearson distance and hclust method
+```{r}
+dist.pear <- function(x) as.dist(1-cor(t(x)))/2
+hclust.ward <- function(x) hclust(x, method="ward.D")
+```
+
+
+# Obtain the clusters
+```{r}
+fit <- hclust.ward(dist.pear(z))
+clusters <- cutree(fit, 12) 
+```
+
+
+```{r}
+plotheatmap3 <- function(z,title="",RowColors,ColColors){
+    # z = scaled and subset of vst
+    heatmap.3(as.matrix(z)
+              , trace ="none"
+              , Colv = FALSE # Reorder Columns
+              , col = bluered(100)
+              , labRow =FALSE #Show Genes
+              , keysize = 0.7
+              , KeyValueName = "Row Z-score"
+              , symbreak  =TRUE 
+              , symm = TRUE
+              , margins = c(8,2)
+              , main = title
+              , cexRow = 0.2
+              , cexCol = 1
+              , scale ="none" 
+              , dendrogram ="row"
+              , distfun =dist.pear
+              , hclustfun =hclust.ward
+              , RowSideColors =RowColors
+              , ColSideColors =ColColors)
+}
+```
+
+```{r}
+getColourPallettes <- function(df.GT,pal.name1,pal.name2,pal.name3){
+    geno<- pull(df.GT,Genotype) %>%  as.integer()
+    timep <- pull(df.GT,TimePoint) %>%  as.integer()
+    
+    c1 <- c(brewer.pal(3, pal.name1)) #genotypes
+    c2 <-  c(brewer.pal(7, pal.name2)) #timepoints
+    c3 <-  c(brewer.pal(max(unique(clusters)), pal.name3))
+    
+    ColColors = cbind("Genotype"=c1[geno]
+                      ,"Time Point"=c2[timep])
+    RowColors = as.matrix(t(c3[clusters]))
+    rownames(RowColors) = "Cluster"
+    
+    fill.geno= brewer.pal(7, pal.name1)
+    fill.time= brewer.pal(7, pal.name2)
+    x=list("ColColors"=ColColors,"RowColors"=RowColors
+           ,"fill.geno"=fill.geno,"fill.time"=fill.time)
+    return(x)
+}
+```
+
+```{r}
+pal = getColourPallettes(df.GT,"YlGn","Oranges","Set3")
+```
+
+```{r}
+title = "Expression of the top 7522 most variable genes \n (no. of genes over the mean variance)"
+
+pdf("8-heatmap3.pdf",height = 12,width = 10)
+plotheatmap3(z=z,pal$RowColors,pal$ColColors
+             , title = title)
+legend(x=0.2,y=1
+       , legend = levels(df.GT$TimePoint)
+       , fill= pal$fill.time
+       , title = "Time Point"
+       , border=FALSE, bty="n",  cex=0.8
+       , horiz=TRUE)
+legend(x=0.42,y=0.96
+       , title = "Genotype"
+       , legend=levels(df.GT$Genotype)
+       , fill= pal$fill.geno
+       , border=FALSE, bty="n", cex=0.8
+       , horiz=TRUE)
+dev.off()
+```
+

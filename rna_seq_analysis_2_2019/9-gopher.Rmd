@@ -1,0 +1,215 @@
+---
+title: "Gene enrichment"
+author: "Andreé Johnsson"
+date: "28/02/2019"
+output: html_document
+---
+
+<http://revigo.irb.hr/revigo.jsp/>
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.path='0-Figs/'
+                      , include = TRUE
+                      , eval = TRUE
+                      , echo=TRUE
+                      , warning=FALSE
+                      , fig.align='center')
+```
+
+Loading packages and data
+```{r}
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(magrittr))
+suppressPackageStartupMessages(library(parallel))
+suppressPackageStartupMessages(library(dendextend))
+suppressPackageStartupMessages(library(KEGGREST))
+suppressPackageStartupMessages(library(gplots))
+suppressPackageStartupMessages(library(hyperSpec))
+suppressPackageStartupMessages(library(LSD))
+suppressPackageStartupMessages(library(matrixStats))
+suppressPackageStartupMessages(library(pander))
+suppressPackageStartupMessages(library(RColorBrewer))
+suppressPackageStartupMessages(library(wordcloud))
+```
+
+
+
+```{r}
+load("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/2.Differential_Expression_of_the_alfredoDataset/0-RData_Storage/5-gopher.RData")
+
+suppressPackageStartupMessages(source("~delhomme/Git/UPSCb/src/R/gopher.R"))
+```
+
+Now we select the background genes, in this case by selecting with feature selection 
+instead of rowSums>0 we hopefully get a more acurate result. We get at least 7948 lesser genes selected by feature selection. 
+
+```{r}
+bg.pop <- kg.salmon[rowSums(kg.salmon)>0,] %>% rownames()
+#bg.pop <- kg.salmon[feature.sel,] %>% rownames()
+length(bg.pop)
+```
+
+```{r}
+length(sig.genes.time.interaction)
+```
+
+
+```{r eval=FALSE}
+system.time(
+    gopher.sig.genes.time.interaction <- 
+        map(sig.genes.time.interaction
+            , ~ gopher(genes = .x
+                       , task = list("go","kegg","pfam")
+                       , background = bg.pop
+                       , url="potra"))
+    )
+```
+
+Extrakting the GO term IDs and padj for the interaction terms and put it all together on
+a nested data frame. This also filters out the terms dependent on the enrichment,"go","kegg or"pfam" with 
+respective significant values of, 0.05, 0.1, 0.01.
+
+```{r}
+Get.gopherIDs.2 <- function(gopher.list,term="go"){
+    # extrakts the selected go, pfam, kegg data frames from each interaction and 
+    # specifically the go id and padj
+    # then the numbers of each interacton to make a belonging vector
+    # sums all go terms for all interactions in one singel nested data frame
+    if (term =="pfam"){
+        sel = c("id","name","padj")}
+    else{
+        sel= c("id","padj")}
+    
+    df.go.padj <- gopher.list %>% map(term) %>% map_dfr(extract, sel)
+    nb.go <- gopher.list %>% map(term) %>% map(nrow) %>% unlist()
+    
+    condition.vec = NULL
+    for (i in 1:length(nb.go)){
+        tmp = rep(names(nb.go)[i],nb.go[i])
+        condition.vec %<>%  append(tmp)
+    }    
+    df.go.padj %<>%
+        mutate(condition = condition.vec) %>%
+        filter(padj<ifelse(term=="go",0.05,ifelse(term=="kegg",0.1,ifelse(term=="pfam",0.01,NULL))) )
+    
+    df.go.padj %<>% group_by(condition) %>% nest()
+    df.go.padj %<>% mutate(n = unlist(map(data,~nrow(.)))) %>% arrange(desc(n))
+    return(df.go.padj)
+}
+```
+
+```{r}
+savegopher.files <- function(nest,dir){
+    # supplying a nested fata frame and a direcotry so dave all files.
+    apply(nest,1, function(row){
+        write_tsv(as.data.frame(row[2])
+                  , paste0("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/2.Differential_Expression_of_the_alfredoDataset/",dir, row[1],".tsv")
+                  , col_names = FALSE)})
+}
+```
+
+Extracting the terms with significant p-values.
+```{r}
+go.terms = Get.gopherIDs.2(gopher.sig.genes.time.interaction,"go")
+kegg.terms = Get.gopherIDs.2(gopher.sig.genes.time.interaction,"kegg")
+pfam.terms = Get.gopherIDs.2(gopher.sig.genes.time.interaction,"pfam")
+```
+
+Saving files to directory.
+```{r eval=FALSE}
+savegopher.files(go.terms,"0-go-term-files/")
+savegopher.files(pfam.terms,"0-pfam-term-files/")
+savegopher.files(kegg.terms,"0-kegg-term-files/")
+```
+
+
+```{r}
+plot.gopher.no <- function(nest){
+    ggplot(nest,aes(x=fct_reorder(condition,n),y=n)) +
+    geom_col() +
+    coord_flip() +
+    labs(title = "Frequency of terms per condition"
+         , y = "No. of terms"
+         , x = "Condition")}
+```
+
+
+```{r}
+map(list(go=go.terms,pfam=pfam.terms,kegg=kegg.terms),plot.gopher.no)
+```
+
+# Kegg
+
+Get all of the ids per time point from the nested list and 
+give names to the result to keep time points.
+
+```{r eval=FALSE}
+kegg.ids <- kegg.terms$data %>% map(extract,"id")
+names(kegg.ids) <- kegg.terms$condition
+```
+
+Get all the uniq pathways ids
+```{r eval=FALSE}
+kegg.pathways <- map(kegg.ids,~ keggLink("pathway",.$id) %>% unique())
+```
+
+Now for each time point we want to get the pathway of the the corresponding id and then
+extrakt the ENTRY and NAME forming a tibble. Then we wan to count the number of occurances if
+the pathway NAME and scale it to 1.
+
+```{r eval=FALSE}
+wordc.mapper = as_mapper(~ map_dfr(.x,
+                   ~ keggGet(.x) %>%
+                       map(extract,c("ENTRY","NAME")) %>%
+                       do.call(rbind,.) %>% as_tibble() %>%
+                       unnest()) %>%
+    count(NAME) %>%
+    mutate(n = n/sum(n) ) )
+```
+
+This valirable stores the uncounted tables.
+```{r eval=FALSE}
+wordc.tables.uncounted$`SVP.LD2-SVP.SDW10` %>% head()
+```
+
+Now we get a table of Entry and name for each condition
+```{r eval=FALSE}
+wordc.tables = map(kegg.pathways,wordc.mapper)
+names(wordc.tables) <- names(kegg.pathways)
+```
+
+```{r}
+wordc.tables %>% names()
+```
+
+
+```{r}
+# hpal <- ?colorRampPalette(colors = c("blue","white","red"))(10)
+# cpal <- rainbow(12)
+
+wordc.tables %>%
+    map(~wordcloud(.x$NAME,.x$n, scale = c(1,.01), rot.per = 0))
+```
+
+# PFAM
+
+Each pfam,go or kegg is ordered by number of entries in the data cell, by a decending order. That is why
+The order or the pictures differ.
+```{r}
+pfam.names <- pfam.terms$data %>% map(extract,"name") %>% map(~count(.x,name))
+names(pfam.names) <- pfam.terms$condition
+```
+
+```{r}
+pfam.names %>% names()
+```
+
+
+```{r}
+pfam.names %>%
+    map(~wordcloud(.x$name,.x$n, scale = c(1,.01), rot.per = 0))
+```
+
+
+
+

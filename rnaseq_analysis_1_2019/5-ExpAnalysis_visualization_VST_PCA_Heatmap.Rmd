@@ -1,0 +1,299 @@
+---
+title: "Explorative Data Analysis of the original data"
+author: "Andreé Johnsson"
+date: "11/02/2019"
+output: html_document
+---
+
+The main idea <https://f1000research.com/articles/4-1070/v2/>
+There are two main steps in this workflow, which are useful to separate conceptually: the one we will see first involves transformations of the counts in order to visually explore sample relationships. In the second step, we will go back to the original raw counts for statistical testing. This is critical because the statistical testing methods rely on original count data (not scaled or transformed) for calculating the precision of measurements.
+
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.path='0-Figs/'
+                      , include = TRUE
+                      , eval = TRUE
+                      , echo=TRUE
+                      , warning=FALSE
+                      , fig.align='center')
+```
+
+```{r}
+load(file ="~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/1.rawDataQA/0-RData_Storage/1-readInSalmon.RData")
+load(file ="~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/1.rawDataQA/0-RData_Storage/5-ExpAnalysis_visualization_VST_PCA_Heatmap.RData")
+```
+
+
+```{r echo=FALSE}
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(gridExtra))
+suppressPackageStartupMessages(library(pander))
+suppressPackageStartupMessages(library(DESeq2))
+suppressPackageStartupMessages(library(plotly))
+suppressPackageStartupMessages(library(vsn))
+suppressPackageStartupMessages(library(pheatmap))
+suppressPackageStartupMessages(library(pander))
+suppressPackageStartupMessages(library(RColorBrewer))
+```
+
+# Data normalisation 
+
+For visualization, the data is submitted to a variance stabilization
+Transformation using DESeq2. The dispersion is estimated independently of the sample tissue or replicate.
+
+```{r eval=FALSE}
+dds.kg.salmon <- DESeqDataSetFromMatrix(
+    countData = kg.salmon,
+    colData = data.frame(condition = factor(sample_info$NGI.ID)),
+    design = ~ condition)
+``` 
+
+Check the size factors (i.e. the sequencing library size effect)
+```{r eval=FALSE}
+dds.kg.salmon <- estimateSizeFactors(dds.kg.salmon)
+sizes.kg.salmon <- sizeFactors(dds.kg.salmon)
+names(sizes.kg.salmon) <- colnames(kg.salmon)
+```
+
+```{r boxplot_seqLibSizeFactor, fig.height=5.5,fig.width=4}
+#pander(sizes.kg.salmon)
+boxplot(sizes.kg.salmon, main = "Sequencing libraries size factor", col = "blue", pch = 8)
+```
+
+
+## Variance Stabilising Transformation
+At the gene level
+```{r eval=FALSE}
+vsd.kg.salmon <- varianceStabilizingTransformation(dds.kg.salmon, blind = TRUE)
+vst.kg.salmon <- assay(vsd.kg.salmon)
+vst.kg.salmon <- vst.kg.salmon - min(vst.kg.salmon)
+```
+
+
+### Validate the VST 
+First we take a look at the effect of VST on a random sample by comparing to the VST's closest approximation i.e log2
+```{r echo=FALSE}
+ranSampleData.log2.kg.salmon <- as.data.frame(log(kg.salmon[,1:2],2))
+ranSampleData.vst.kg.salmon <- as.data.frame(vst.kg.salmon[,1:2])
+```
+
+```{r echo=FALSE,fig.width=15,fig.height=5}
+raSamplot3 <-
+    ggplot(as.data.frame(kg.salmon[,1:2]),aes(x=P10011_101,y=P10011_102)) +
+    geom_bin2d(bins=70) +
+    labs(title = "Raw data, No transformation")
+
+raSamplot1 <-
+    ggplot(ranSampleData.log2.kg.salmon,aes(x=P10011_101,y=P10011_102)) +
+    geom_bin2d(bins=70) +
+    labs(title = "Transformed by Log2")
+
+raSamplot2 <-
+    ggplot(ranSampleData.vst.kg.salmon,aes(x=P10011_101,y=P10011_102)) +
+    geom_bin2d(bins=70) +
+    labs(title = "Transformed by VST")
+
+grid.arrange(raSamplot3,raSamplot1, raSamplot2, ncol = 3)
+```
+A lot of the log2 values were removed (8337) because rows contained non finite values. Hence the low density. 
+
+### A look at the change in the entire data
+
+```{r meanSDplot, fig.height=3,fig.width=5}
+# Raw data
+meanSdPlot(kg.salmon[rowSums(kg.salmon)>0,])
+# We try log 2 since this is an approximation of VST
+meanSdPlot(log(kg.salmon[rowSums(kg.salmon)>0,],2))
+# VST data
+meanSdPlot(vst.kg.salmon[rowSums(kg.salmon)>0,])
+```
+
+Export the vst
+```{r eval=FALSE}
+write.csv(vst.kg.salmon, "/mnt/picea/home/ajohnsson/Data-Files-aspen-FTL1-growth-cessation/analysis/salmon/library-size-normalized_variance-stabilized_gene-expression_data.csv")
+```
+
+# QC on the normalised data
+
+```{r eval=FALSE, include=FALSE}
+#Putting one more labe to the sample_info dataframe to be able to see #the spead of the different experiments
+
+Owner.Name = NA
+Owner.Name[grep("T89|SVP|FT",sample_info$User.ID,value = F)]="alfredo"
+Owner.Name[grep("[A-Z]{3}-FA",sample_info$User.ID,value = F)]="jehua-FA"
+Owner.Name[grep("[A-Z]{3}-Y-",sample_info$User.ID,value = F)]="jehua-Y"
+Owner.Name[grep("[A-Z]{3}-A",sample_info$User.ID,value = F)]="jehua-A"
+Owner.Name[grep("MIMIC|OX|WT",sample_info$User.ID,value = F)]="mimic"
+Owner.Name[grep("[A-Z]{3}-[1-9]",sample_info$User.ID,value = F)]="tls.rls"
+Owner.Name[grep("[A-Z]{3}-[1-9]",sample_info$User.ID,value = F)]="tls.rls"
+Owner.Name[grep("849-4",sample_info$User.ID,value = F)]="849-4"
+sample_info[is.na(Owner.Name),]
+sample_info$Dataset.ID = Owner.Name
+```
+
+## PCA
+```{r eval=FALSE}
+pc <- prcomp(t((vst.kg.salmon)))
+percent <- round(summary(pc)$importance[2,]*100)
+```
+
+```{r percentageExplainedVarby_PC , fig.height=4,fig.width=5}
+plot(percent[1:10], type = "b", xlab = "No. of principle components"
+     , ylab = "Percent explained variance by PC"
+     , col = "brown", pch = 10)
+```
+
+### PCA of all Data at the same time 
+
+The samples that are classed as "intermediate" merge with the pattern of the rest of the good samples, hence are keept but will be analysed with an extra eye. The samples that are classed as "bad" needs to be taken away as they form an individual cluster and do not merge with the rest of the sample within the same data set.
+```{r echo=FALSE}
+#Subseting the big dataframe to a smaller one with only the first PCs
+pc.vstAllData = as.data.frame(pc$x[,1:5])
+#head(pc.vstAllData,3)
+```
+
+```{r eval=FALSE}
+plotPCA1 <- 
+    ggplot(pc.vstAllData, aes(x=PC1, y=PC2
+                              , col=sample_info$Dataset.ID
+                              , shape=sample_info$Status)) +
+    geom_point() +
+    labs(col="",shape="") +
+    theme(legend.position="top",legend.text=element_text(size=9)) +
+    geom_point(data=subset(pc.vstAllData,sample_info$Status=="intermediate")
+               , col="orange",aes(x=PC1, y=PC2),size=8, shape=1) +
+    geom_point(data=subset(pc.vstAllData,sample_info$Status == "bad")
+               , col="red",aes(x=PC1, y=PC2),size=8, shape=1)
+
+plotPCA2 <-
+    ggplot(pc.vstAllData, aes(x=PC1, y=PC3
+                             , col=sample_info$Dataset.ID
+                             , shape=sample_info$Status)) +
+    geom_point() +
+    guides(col=FALSE,shape=FALSE)  +
+    geom_point(data=subset(pc.vstAllData,sample_info$Status=="intermediate")
+               , col="orange",aes(x=PC1, y=PC3),size=8, shape=1) +
+    geom_point(data=subset(pc.vstAllData,sample_info$Status == "bad")
+               , col="red",aes(x=PC1, y=PC3),size=8, shape=1)
+
+plotPCA3 <-
+    ggplot(pc.vstAllData, aes(x=PC2, y=PC3
+                             , col=sample_info$Dataset.ID
+                             , shape=sample_info$Status)) +
+    labs(col="",shape="") +
+    geom_point() +
+    guides(col=FALSE,shape=FALSE)  +
+    geom_point(data=subset(pc.vstAllData,sample_info$Status=="intermediate")
+               , col="orange",aes(x=PC2, y=PC3),size=8, shape=1) +
+    geom_point(data=subset(pc.vstAllData,sample_info$Status == "bad")
+               , col="red",aes(x=PC2, y=PC3),size=8, shape=1)
+```
+```{r rawData_PCA, echo=FALSE}
+#grid.arrange(plotPCA1, plotPCA2, plotPCA3,
+#             ncol = 1)
+#plotPCA1
+#plotPCA2
+#plotPCA3
+```
+
+#### Orange ring = intermediate samples, Red ring = bad samples, determined from previous Raw Count Distribution
+```{r echo=FALSE}
+ggplotly(plotPCA1)
+ggplotly(plotPCA2)
+ggplotly(plotPCA3)
+```
+
+### PCA of the "alfredo" dataset colored by genotype and treatment
+
+#### Orange ring = intermediate samples, Red ring = bad samples, determined from previous Raw Count Distribution
+```{r}
+pc.alfredo.data = pc.vstAllData[rownames(pc.vstAllData) %in% sample_info.alfredo$NGI.ID,]
+
+plotPC.alfredo <- 
+    ggplot(pc.alfredo.data, aes(x=PC1, y=PC2
+                              , col = sample_info.alfredo$Treatment
+                              , shape = sample_info.alfredo$Genotype)) +
+    geom_point() +
+    labs(col="",shape="",title = "PCA of the \"alfredo\" dataset") +
+    theme(legend.position="top",legend.text=element_text(size=9)) +
+    geom_point(data=subset(pc.alfredo.data,sample_info.alfredo$Status=="intermediate")
+               , col="orange",aes(x=PC1, y=PC2),size=8, shape=1)  +
+    geom_point(data=subset(pc.alfredo.data,sample_info.alfredo$Status == "bad")
+               , col="red",aes(x=PC1, y=PC2),size=8, shape=1)
+
+ggplotly(plotPC.alfredo)
+```
+
+```{r echo=FALSE}
+plotPC.alfredo2 <- 
+    ggplot(pc.alfredo.data, aes(x=PC1, y=PC3
+                              , col = sample_info.alfredo$Treatment
+                              , shape = sample_info.alfredo$Genotype)) +
+    geom_point() +
+    labs(col="",shape="",title = "PCA of the \"alfredo\" dataset") +
+    theme(legend.position="top",legend.text=element_text(size=9)) +
+    geom_point(data=subset(pc.alfredo.data,sample_info.alfredo$Status=="intermediate")
+               , col="orange",aes(x=PC1, y=PC3),size=8, shape=1)  +
+    geom_point(data=subset(pc.alfredo.data,sample_info.alfredo$Status == "bad")
+               , col="red",aes(x=PC1, y=PC3),size=8, shape=1)
+
+ggplotly(plotPC.alfredo2)
+```
+
+```{r echo=FALSE}
+plotPC.alfredo3 <- 
+    ggplot(pc.alfredo.data, aes(x=PC2, y=PC3
+                              , col = sample_info.alfredo$Treatment
+                              , shape = sample_info.alfredo$Genotype)) +
+    geom_point() +
+    labs(col="",shape="",title = "PCA of the \"alfredo\" dataset") +
+    theme(legend.position="top",legend.text=element_text(size=9)) +
+    geom_point(data=subset(pc.alfredo.data,sample_info.alfredo$Status=="intermediate")
+               , col="orange",aes(x=PC2, y=PC3),size=8, shape=1)  +
+    geom_point(data=subset(pc.alfredo.data,sample_info.alfredo$Status == "bad")
+               , col="red",aes(x=PC2, y=PC3),size=8, shape=1)
+
+ggplotly(plotPC.alfredo3)
+```
+
+## Heatmap
+By computing the eucleadian distance between each sample we can make a heatmap of the VST data frame
+```{r eval=FALSE, include=FALSE}
+sampleDists <- dist(t(assay(vsd.kg.salmon)))
+```
+
+```{r}
+head(sampleDists,4)
+```
+```{r}
+dim(as.matrix(sampleDists))
+```
+
+```{r eval=FALSE}
+sampleDistMatrix <- as.matrix(sampleDists)
+rownames(sampleDistMatrix) <- paste(colnames(vsd.kg.salmon), sample_info$User.ID, sep = " - ")
+colnames(sampleDistMatrix) <- NULL
+```
+
+```{r heatmap_samples, fig.width=25,fig.height=25}
+colors <- colorRampPalette(rev(brewer.pal(9, "Blues")) )(273)
+pheatmap(sampleDistMatrix,
+         clustering_distance_rows = sampleDists,
+         clustering_distance_cols = sampleDists,
+         col = colors,
+         fontsize_row = 2,
+         show_colnames = TRUE)
+```
+
+
+```{r eval=FALSE}
+save.image(file ="~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/1.rawDataQA/0-RData_Storage/5-ExpAnalysis_visualization_VST_PCA_Heatmap.RData")
+```
+
+```{r}
+sessionInfo()
+```
+
+
+
+

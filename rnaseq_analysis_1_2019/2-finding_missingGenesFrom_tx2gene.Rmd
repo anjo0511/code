@@ -1,0 +1,102 @@
+---
+title: "Finding The Functions of The Missing Genes"
+author: "Andreé Johnsson"
+date: "11/02/2019"
+output: html_document
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.path='0-Figs/'
+                      , include = TRUE
+                      , eval = TRUE
+                      , echo=TRUE
+                      , warning=FALSE
+                      , fig.align='center')
+```
+
+```{r}
+load(file ="~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/1.rawDataQA/0-RData_Storage/1-readInSalmon.RData")
+load(file = "~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/1.rawDataQA/0-RData_Storage/2-finding_missingGenesFrom_tx2gene.RData")
+```
+
+
+```{r echo=FALSE}
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(pander))
+```
+
+The names of the transcripts missing from tx2gene (883)
+
+```{r eval=FALSE}
+refference.genes <- as.character(tx2gene$Transcipt.ID)
+expressed.genes <- rownames(txi.salmon$counts)
+```
+
+Saving the transcript ID of those missing in the reference transcriptome
+```{r eval=FALSE}
+missingFromTx2gene <- expressed.genes[(expressed.genes %in% refference.genes) == FALSE]
+missingFromTx2gene <- data.frame(missingFromTx2gene)
+```
+```{r}
+pander(head(missingFromTx2gene,5))
+```
+
+Saving the missing genes into a csv file
+```{r eval=FALSE}
+write.csv(missingFromTx2gene, file = "/mnt/picea/home/ajohnsson/Project-Git-Files-aspen-FTL1-growth-cessation/doc/missingFromTx2gene.csv"
+            , row.names = FALSE)
+```
+
+
+Readig in the GFF3 file containing non-coding RNA genes
+```{r eval=FALSE}
+gff <- 
+    readGff3(file = "/mnt/picea/storage/reference/Populus-tremula/v1.1/gff3/Potra01-gene.gff3.gz")
+```
+
+Obtaining all IDs from the gff3 file
+Getting a  boolean of genes that are present in the pool of unannotaded genes
+
+```{r eval=FALSE}
+ID <- getGffAttribute(gff,"ID")
+ID <- as.data.frame(ID)
+bolID <- ID[,1] %in% missingFromTx2gene[,1]
+tableNonCodingRNA=table(gff@annotation$type[bolID])
+```
+
+
+```{r}
+pander(tableNonCodingRNA)
+```
+
+```{r eval=FALSE, echo=FALSE}
+#Figure margins
+mar <- c(5.1,4.1,4.1,2.1)
+mgp <- c(3,1,0)
+```
+
+```{r boxplot-missingGenes}
+par(mar = c(5,10,4,3))
+bar<-barplot(tableNonCodingRNA
+            , main = "Gene types not present in refferens mRNA transcriptom"
+            , sub = "A total of 883 genes could be back-tracked to non-coding RNA"
+            , xlab = "No. of transcrips"
+            , ylab = ""
+            , las = 1
+            , xlim = c(0,600)
+            , horiz = TRUE)
+
+barChartmissingGnesnumbers <- as.vector(table(gff@annotation$type[bolID]))
+text(x = barChartmissingGnesnumbers,y = bar,labels = barChartmissingGnesnumbers, pos = 4, cex = 0.8, col = "red")
+mtext(text = "Type of transcript",side = 2,line = 8)
+par(mar = mar)
+```
+
+```{r eval=FALSE}
+save.image(file = "~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/1.rawDataQA/0-RData_Storage/2-finding_missingGenesFrom_tx2gene.RData")
+```
+
+```{r}
+sessionInfo()
+```
+

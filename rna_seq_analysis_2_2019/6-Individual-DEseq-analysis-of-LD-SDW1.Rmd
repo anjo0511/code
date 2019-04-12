@@ -1,0 +1,116 @@
+---
+title: "Individual DEseq analysis of SDW1"
+author: "Andreé J"
+date: "05/04/2019"
+output: html_document
+---
+
+
+# Loading libraries and sample information
+```{r}
+suppressPackageStartupMessages(library(magrittr))
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(DESeq2))
+suppressPackageStartupMessages(library(rlist))
+suppressPackageStartupMessages(library(gridExtra))
+```
+
+# Read in the count data for all samples
+```{r}
+# Read in The entire count Table
+kg.salmon <- read_tsv("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/restart_Analysis_To_make_int_Understandable/0-Important-DataTables/kg.salmon.tsv", col_names = TRUE)
+kg.salmon %<>% column_to_rownames(var= "genes")
+
+# Read in the samaple info
+load("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/restart_Analysis_To_make_int_Understandable/sample_info_alfredo_noBad_noBB.RData")
+```
+
+# Replicates for each timepoint
+```{r}
+table(sample_info_alfredo_noBad_noBB[,c("Genotype","TimePoint")])
+```
+
+# These two functions, dds function returns a dds object and the second extrakt
+# returns the sig gene list.
+
+```{r}
+dds_mini <- function(kg,sample_info, t.1="LD",t.2="SDW1"){
+    dds.list = list()
+    genotypes = c("T89","SVP","FT")
+    
+    for (i in genotypes){
+        sample_info.1 = sample_info
+        sample_info.1 %<>% filter(Genotype == i , TimePoint== t.1|TimePoint== t.2)
+        sample_info.1 %<>% mutate(Genotype = droplevels(Genotype),
+                               TimePoint = droplevels(TimePoint) )
+        
+        print(levels(sample_info.1$Genotype))
+        print(levels(sample_info.1$TimePoint))
+        kg.1 <- kg[sample_info.1$NGI.ID]
+        dds <- DESeqDataSetFromMatrix(
+             countData = kg.1,
+             colData = sample_info.1,
+             design = ~TimePoint)
+         dds %<>%  DESeq(.)  
+         dds.list %<>% list.append(dds) 
+    }
+    names(dds.list) <- genotypes
+    return(dds.list)
+}
+```
+
+```{r}
+dds.list = dds_mini(kg.salmon, sample_info_alfredo_noBad_noBB, t.1="LD", t.2="SDW1")
+```
+
+```{r}
+dds.list %>% map(~resultsNames(.x))
+```
+
+```{r}
+extractSigGenes <- function(dds.list){
+    sig.gene.list = list()
+    for (dds in dds.list){
+        res.name = resultsNames(dds)[2]
+        res <- results(dds
+                   , name = res.name
+                   , alpha = 0.01
+                   , lfcThreshold = 0.5)
+        sig.genes <- rownames(res[res$padj <= .01
+                              & !is.na(res$padj)
+                              & abs(res$log2FoldChange)>=0.5,])
+        
+        sig.gene.list %<>% list.append(sig.genes) 
+    
+    }
+    names(sig.gene.list) <- names(dds.list)
+    return(sig.gene.list)
+}
+```
+
+```{r}
+sig.gene.list <- extractSigGenes(dds.list)
+```
+
+```{r}
+sig.gene.list %>% map(~length(.x))
+```
+
+```{r}
+source("~/Git/UPSCb/src/R/plotVennDiagram.R")
+```
+
+```{r}
+myVenn(sig.gene.list) 
+grid.text("LD to SDW1", y=0.92, x= 0.33, gp=gpar(col="black", cex=1.2))
+```
+
+
+```{r}
+png("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/restart_Analysis_To_make_int_Understandable/6-VennDiagram-Individual-DEseq-analysis-of-LD-SDW1.png")
+myVenn(sig.gene.list) 
+grid.text("LD to SDW1", y=0.92, x= 0.23, gp=gpar(col="black", cex=1.2))
+dev.off()
+
+```
+

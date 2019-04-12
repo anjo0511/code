@@ -1,0 +1,147 @@
+---
+title: "Extract_the_sig_genes_matrixs"
+author: "Andreé Johnsson"
+date: "02/04/2019"
+output: html_document
+---
+
+# Loading libraries and sample information
+```{r}
+suppressPackageStartupMessages(library(magrittr))
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(DESeq2))
+suppressPackageStartupMessages(library(gridExtra))
+```
+
+```{r}
+load("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/restart_Analysis_To_make_int_Understandable/dds_alfredo_noBad_noBB.RData")
+```
+
+
+```{r}
+resultsNames(dds_alfredo_noBad_noBB)
+```
+
+# The relevant combinations we want, between sucessive timepoints 
+```{r}
+comb <- c(
+"GenotypeSVP.TimePointSDW1-Genotype_SVP_vs_T89", # This interaction represents LD-SDW1 in SVP
+"GenotypeSVP.TimePointSDW2-GenotypeSVP.TimePointSDW1", 
+"GenotypeSVP.TimePointSDW3-GenotypeSVP.TimePointSDW2", 
+"GenotypeSVP.TimePointSDW10-GenotypeSVP.TimePointSDW3", 
+"GenotypeSVP.TimePointCTW10-GenotypeSVP.TimePointSDW10",
+"GenotypeSVP.TimePointLD2-GenotypeSVP.TimePointCTW10",
+
+"GenotypeFT.TimePointSDW1-Genotype_FT_vs_T89", # This interaction represents LD-SDW1 in FT
+"GenotypeFT.TimePointSDW2-GenotypeFT.TimePointSDW1", 
+"GenotypeFT.TimePointSDW3-GenotypeFT.TimePointSDW2", 
+"GenotypeFT.TimePointSDW10-GenotypeFT.TimePointSDW3", 
+"GenotypeFT.TimePointCTW10-GenotypeFT.TimePointSDW10",
+"GenotypeFT.TimePointLD2-GenotypeFT.TimePointCTW10",
+
+"Genotype_SVP_vs_T89-Genotype_FT_vs_T89", # This interaction represents the difference in LD
+"GenotypeSVP.TimePointSDW1-GenotypeFT.TimePointSDW1",
+"GenotypeSVP.TimePointSDW2-GenotypeFT.TimePointSDW2",
+"GenotypeSVP.TimePointSDW3-GenotypeFT.TimePointSDW3",
+"GenotypeSVP.TimePointSDW10-GenotypeFT.TimePointSDW10", 
+"GenotypeSVP.TimePointCTW10-GenotypeFT.TimePointCTW10",
+"GenotypeSVP.TimePointLD2-GenotypeFT.TimePointLD2"
+)
+```
+
+
+```{r}
+get_Two_M.2 <- function(dds, comb){
+    colnames = NULL
+    # Make two matrix of NA with gene as rownames
+    log2f.matrix <- (assay(dds)[,1:length(comb)] * NA) 
+    colnames(log2f.matrix) = comb
+    padj.matrix <- log2f.matrix
+    
+    # Gets every interaction and fills the NA matrix accordinly with the real
+    # values 
+    for (i in comb){
+        res = results(object = dds
+                  , contrast = strsplit(i,"-")
+                  , alpha = 0.01
+                  , lfcThreshold = 0.5)
+        
+        log2f.matrix[,i] = res[,"log2FoldChange"]
+        padj.matrix[,i] = res[,"padj"] 
+        
+        # Trims the colnames 
+        colname_tmp = i %>% gsub("Genotype|TimePoint","",.) %>%
+            str_split("\\.|-") %>% map_chr(~unique(.x) %>% paste(collapse ="_"))
+        colnames %<>% append(colname_tmp)
+        
+        print(colname_tmp)
+    }  
+    
+    colnames(log2f.matrix) = colnames
+    colnames(padj.matrix) = colnames
+    # Returns the two matrix of all given combination with
+    # respective log2foldchange values and padj values, this is later
+    # trimed to obtained the significant genes.
+    return( list( "log2FC" = log2f.matrix,"padj" = padj.matrix) )
+}
+```
+
+```{r}
+trimlog2foldMatrix <- function(test){
+    # Trims Log2fold matrix to only include the significantgenes with their
+    # respective log2foldchange value, the rest is NA.
+    log2f.matrix = test$log2FC
+    padj.matrix = test$padj
+    
+    logical_matrix = (padj.matrix<= 0.01 &
+                                !is.na(padj.matrix) &
+                                abs(log2f.matrix) >= 0.5 )
+    for (col in 1:ncol(log2f.matrix)){
+        
+        log2f.matrix[ logical_matrix[,col] == FALSE , col] = NA
+        }
+    return(as.data.frame(log2f.matrix))
+    }
+```
+
+
+# First we get the two matrices of Log2FC and padj for all the desire combinations
+```{r}
+log2FC_and_padj_matrices = get_Two_M.2(dds_alfredo_noBad_noBB,comb = comb)
+```
+
+# We change the name of _SVP_vs_T89__FT_vs_T89 to SVP_LD_FT since it reprecents that interacation.
+```{r}
+log2FC_and_padj_matrices$log2FC %<>%
+    as.data.frame() %>%
+    dplyr::rename(SVP_LD_FT= `_SVP_vs_T89__FT_vs_T89`
+                  , SVP_SDW1_LD = `SVP_SDW1__SVP_vs_T89`
+                  , FT_SDW1_LD = `FT_SDW1__FT_vs_T89`)
+log2FC_and_padj_matrices$padj %<>%
+    as.data.frame() %>%
+    dplyr::rename(SVP_LD_FT= `_SVP_vs_T89__FT_vs_T89`
+                  , SVP_SDW1_LD = `SVP_SDW1__SVP_vs_T89`
+                  , FT_SDW1_LD = `FT_SDW1__FT_vs_T89`)
+```
+
+# Then we trimm the Log2FC matrix to only include the significant genes
+```{r}
+trimmed_log2FC_only_sig_genes_matrix <- trimlog2foldMatrix(log2FC_and_padj_matrices)
+```
+
+
+```{r}
+all.equal(colnames(log2FC_and_padj_matrices$padj),colnames(log2FC_and_padj_matrices$log2FC),colnames(trimmed_log2FC_only_sig_genes_matrix))
+```
+
+# Now we save it in an R object
+```{r}
+# save(log2FC_and_padj_matrices,trimmed_log2FC_only_sig_genes_matrix,file= "~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/restart_Analysis_To_make_int_Understandable/log2FC_and_padj_matrices_and_trimmed.RData")
+```
+
+# Now we save it in an csv
+```{r}
+trimmed_log2FC_only_sig_genes_matrix %>% rownames_to_column(var="genes") %>%
+    write_csv("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/restart_Analysis_To_make_int_Understandable/0-Important-DataTables/trimmed_log2FC_only_sig_genes_matrix.csv", col_names = TRUE)
+```
+

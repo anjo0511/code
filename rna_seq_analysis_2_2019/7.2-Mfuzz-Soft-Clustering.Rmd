@@ -1,0 +1,274 @@
+---
+title: "7.2 Mfuzz Soft Clustering"
+author: "Andreé Johnsson"
+date: "11/04/2019"
+output: html_document
+---
+
+
+<https://2-bitbio.com/post/clustering-rnaseq-data-using-fuzzy-c-means-clustering//>
+<http://www.sthda.com/english/wiki/correlation-matrix-a-quick-start-guide-to-analyze-format-and-visualize-a-correlation-matrix-using-r-software/>
+</>
+</>
+</>
+
+# Loading libraries and sample information
+
+```{r}
+suppressPackageStartupMessages(library(Mfuzz))
+suppressPackageStartupMessages(library(magrittr))
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(plotly))
+suppressPackageStartupMessages(library(corrplot))
+```
+
+# Function to plot Mfuzz grid in current Dir.
+
+```{r}
+save.mfuzz.plot <- function(table,cl,m,min.mem,col="Spectral"){
+    # Saves The Clusters Image in Current Working Dir. Resize Auto.
+    Dir <- "0-Mfuzz_Plots/"
+    if (dir.exists(Dir)==FALSE){
+        dir.create(Dir, showWarnings = FALSE)}
+    
+    
+    name = paste0(getwd(),"/0-Mfuzz_Plots/7-MfuzzPlot_clusters_"
+                  ,max(unique(cl$cluster)),"_m_",round(m*1000),"_.png")
+    fig.col = 4
+    fig.row = ceiling((max(unique(cl$cluster)+1)/fig.col))
+    cat("Rows:",fig.row," ","Columns:",fig.col,"\n")
+    png(name, height = (1550*fig.row), width = (1250*fig.col), res =300)
+    mfuzz.plot2(table
+               , cl=cl
+               , x11 = FALSE
+               , mfrow = c(fig.row,fig.col)
+               , time.labels = colnames(table)
+               , centre = TRUE
+               , colo =brewer.pal(11, col)
+               , centre.col = "white"
+               , las = 2
+               , xlab = ""
+               , min.mem = min.mem)
+    
+    suppressWarnings(
+    mfuzzColorBar(col=brewer.pal(11, col),main="Membership value"))
+    dev.off()
+}
+```
+
+
+# We open the file as a eset object
+
+```{r}
+Mfuzz_median_vst_ordered_by_var_filtered_scaled <-
+    table2eset("0-Important-DataTables/Mfuzz_median_vst_ordered_by_var_filtered_scaled.tsv")
+
+# We have already filtered and standarized the data, this is to double check
+quantile(as.matrix(Mfuzz_median_vst_ordered_by_var_filtered_scaled) )
+filter.std(Mfuzz_median_vst_ordered_by_var_filtered_scaled, min.std =0, visu = TRUE)
+```
+
+
+# Estimating fuzzines M
+```{r}
+dim(Mfuzz_median_vst_ordered_by_var_filtered_scaled)
+m = mestimate(Mfuzz_median_vst_ordered_by_var_filtered_scaled)
+m
+```
+
+This function randomise the time order for each gene separately.
+The function produces an object of the ExpressionSet class with randomised expression data.
+```{r}
+random.df <- randomise(Mfuzz_median_vst_ordered_by_var_filtered_scaled)
+```
+
+# 7522 = the mean expression 
+This function performs repeated soft clustering for a range of cluster numbers c and reports the minimum centroid dista. The minimum centroid distance is defined as the minimum distance between two cluster centers produced by the c-means clusterings.
+```{r}
+tmp.Dmin <- 
+    random.df[1:5000,] %>%
+    Dmin(m =m, crange =seq(4,40,4), repeats =3,visu = TRUE)
+```
+
+```{r}
+quantile(tmp.Dmin)
+ggplot(as.data.frame(cbind("cluster"=seq(4,40,4),"distance"=tmp.Dmin))
+       ,aes(x=cluster,y=distance))+
+    geom_smooth(se=FALSE)+
+    geom_point() +
+    geom_vline(xintercept = seq(16,36,5),col="red") +
+    geom_hline(yintercept = 2.0,col="red") +
+    labs(x="Cluster No.",y="Min. centroid distance")
+```
+
+
+```{r}
+cl <- mfuzz(Mfuzz_median_vst_ordered_by_var_filtered_scaled, c=35, m=m)
+cl$centers %>% head(n=2)
+```
+
+```{r}
+Ptmp <- overlap.plot(cl,over= overlap(cl),thres=0.05)
+```
+
+```{r}
+save.mfuzz.plot(table=Mfuzz_median_vst_ordered_by_var_filtered_scaled
+                , cl=cl
+                , m = m
+                , min.mem = 0.7)
+```
+
+
+```{r}
+#import some data manipulation functions
+library(reshape2)
+
+#get the centroids into a long dataframe:
+cl_centroids <- cl$centers
+cl_centroids_df <- data.frame(cl_centroids)
+cl_centroids_df$cluster <- row.names(cl_centroids_df)
+centroids_long <- tidyr::gather(cl_centroids_df,"sample",'value',1:21)
+
+centroids_long$sample %<>%  factor(levels = unique(centroids_long$sample))
+centroids_long$cluster %<>%  factor(levels = unique(centroids_long$cluster))
+
+plotlt <- ggplot(centroids_long, aes(x=sample,y=value, group=cluster, colour=as.factor(cluster))) +
+    geom_line() +
+    xlab("Time") +
+    ylab("Expression") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+    labs(title= "Cluster Expression by Time of The Centroid Profiles",color = "Cluster")
+```
+
+```{r}
+
+ggplotly(plotlt)
+```
+
+
+```{r}
+cor(t(cl_centroids)) %>% corrplot(type = "upper", order = "hclust",method = "ellipse"
+                                  , hclust.method = "ward.D" ,
+         tl.col = "black", tl.srt = 45)
+```
+
+```{r}
+(cor(t(cl_centroids)) > 0.85) %>% sum() - 22
+```
+
+# 30 Clusters
+
+# 22 , 4 corr > 0.85
+# 21 , 3
+# 20, 
+```{r}
+cl <- mfuzz(Mfuzz_median_vst_ordered_by_var_filtered_scaled, c=16, m=m)
+cl$centers %>% head(n=2)
+```
+
+
+```{r}
+cl_centroids <- cl$centers
+cl_centroids_df <- data.frame(cl_centroids)
+cl_centroids_df$cluster <- row.names(cl_centroids_df)
+centroids_long <- tidyr::gather(cl_centroids_df,"sample",'value',1:21)
+
+centroids_long$sample %<>%  factor(levels = unique(centroids_long$sample))
+centroids_long$cluster %<>%  factor(levels = unique(centroids_long$cluster))
+
+plotlt <- ggplot(centroids_long, aes(x=sample,y=value, group=cluster, colour=as.factor(cluster))) +
+    geom_line() +
+    xlab("Time") +
+    ylab("Expression") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+    labs(title= "Cluster Expression by Time of The Centroid Profiles",color = "Cluster")
+```
+
+
+```{r}
+ggplot(centroids_long, aes(x=sample,y=value, group=cluster, colour=as.factor(cluster))) +
+    facet_grid(~cluster,scales = "free_y") +
+    geom_line() +
+    xlab("Time") +
+    ylab("Expression") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+    labs(title= "Cluster Expression by Time of The Centroid Profiles",color = "Cluster")
+```
+
+
+```{r}
+(cor(t(cl_centroids)) > 0.85) %>% sum() - 16
+```
+
+```{r}
+save.mfuzz.plot(table=Mfuzz_median_vst_ordered_by_var_filtered_scaled
+                , cl=cl
+                , m = m
+                , min.mem = 0.7)
+```
+
+```{r}
+cor(t(cl_centroids)) %>% corrplot(type = "upper"
+                                  , order = "hclust"
+                                  # , method = "ellipse"
+                                  , hclust.method = "ward.D" 
+                                  , tl.col = "black", tl.srt = 45)
+
+```
+
+
+
+```{r}
+
+# A plot is genererated based on a prinicpal component analysis of the cluster centers. The overlap is visualised by lines with variable width indicating the strength of the overlap. Additonally, the matrix of principal components is returned. This matrix can be re-used for other projections to compare the overlap and global cluster structure of different clusterings.
+
+
+# This function calculates the overlap of clusters produced by mfuzz.The function generates a matrix of the normalised overlap of soft clusters. The overlap indicates the extent of “shared” genes between clusters
+
+# This function visualises the cluster overlap produced by overlap.
+Ptmp <- overlap.plot(cl,over= overlap(cl),thres=0.05)
+
+```
+
+```{r}
+ggplotly(plotlt)
+```
+
+```{r}
+cl$size
+```
+
+```{r}
+cl$membership %>% dim()
+```
+
+
+
+```{r}
+cluster.16 <- acore(Mfuzz_median_vst_ordered_by_var_filtered_scaled,cl,min.acore = 0) 
+```
+
+
+```{r}
+names(cluster.16) <- 1:16
+
+```
+
+
+```{r}
+cluster.16 %<>% imap(~add_column(.x,Cluster = rep(.y,nrow(.x)))) %>%
+    do.call(rbind,.) %>%
+    as.data.frame()
+
+rownames(cluster.16) <- cluster.16$NAME
+cluster.16$Cluster %<>% as.integer() 
+```
+
+```{r}
+cluster.16 %>% filter(Cluster ==1,MEM.SHIP>0.9)
+```
+
+```{r}
+cluster.16 %>% write_tsv("0-Important-DataTables/Mfuzz_16_clusters_MembershipTable.tsv")
+```
+

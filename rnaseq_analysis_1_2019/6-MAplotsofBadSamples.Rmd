@@ -1,0 +1,246 @@
+---
+title: "Analysis of the samples of less good quality by comparing replicates"
+author: "Andreé Johnsson"
+date: "14/02/2019"
+output: html_document
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.path='0-Figs/'
+                      , include = TRUE
+                      , eval = TRUE
+                      , echo=TRUE
+                      , warning=FALSE
+                      , fig.align='center')
+```
+
+
+# Loading Data to Analyse
+Loading in the RData necessary
+```{r}
+load(file ="~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/1.rawDataQA/0-RData_Storage/1-readInSalmon.RData")
+load(file ="~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/1.rawDataQA/0-RData_Storage/5-ExpAnalysis_visualization_VST_PCA_Heatmap.RData")
+```
+
+```{r echo=FALSE}
+list=ls()
+list = list[-match(c("sample_info","dds.kg.salmon","sample_info.alfredo","kg.salmon","vst.kg.salmon"),list)]
+rm(list = list)
+```
+
+Loading in the functions we made to do Volcano and MA plots
+```{r}
+source("~/Project-Git-Files-aspen-FTL1-growth-cessation/src/R/Sig-geneList-Volcano-MA-Plot-Functions_andreejohnsson.R")
+```
+
+Loading packages
+```{r}
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(magrittr))
+suppressPackageStartupMessages(library(gridExtra))
+suppressPackageStartupMessages(library(pander))
+suppressPackageStartupMessages(library(DESeq2))
+suppressPackageStartupMessages(library(ggpubr))
+```
+# Scatter Plots of good against bad individual samples (vst count data was used)
+## To the left(good,good) To the rigth(bad,bad)
+As a reference for assessing the next figures
+```{r echo=FALSE, fig.height=4,fig.width=8}
+par(mfrow = c(1,2))
+plot(vst.kg.salmon[,c("P10011_164","P10011_271")],cex=0.5)
+plot(vst.kg.salmon[,c("P10011_162","P10011_163")],cex=0.5)
+par(mfrow = c(1,1))
+```
+
+## On the x axis (row1&2 good), on the y axis (col1&2&3,bad1&2&3)
+We clearly see the a greater range of the good samples (x-axis) and 
+a strange pattern of the bad samples (y-axis).
+```{r echo=FALSE, fig.width=11,fig.height=7}
+par(mfrow = c(2,3))
+plot(vst.kg.salmon[,c("P10011_164","P10011_162")])
+plot(vst.kg.salmon[,c("P10011_164","P10011_163")])
+plot(vst.kg.salmon[,c("P10011_164","P10011_270")])
+
+plot(vst.kg.salmon[,c("P10011_271","P10011_162")])
+plot(vst.kg.salmon[,c("P10011_271","P10011_163")])
+plot(vst.kg.salmon[,c("P10011_271","P10011_270")])
+par(mfrow = c(1,1))
+```
+
+# D.E of the replicates that were assessed good/bad (T89 LW2)
+
+Take a look at out previously created dds object 
+```{r}
+dds.good.int.bad <- dds.kg.salmon
+dds.good.int.bad
+```
+
+We first extract the names of the samples we want to analyse
+Then select the corresponding metadata by the name of the samples
+Then we drop unused levels and re-level to set "good" as default
+```{r}
+names.T89.LD2 = sample_info.alfredo$NGI.ID[sample_info.alfredo$Genotype=="T89" &
+                               sample_info.alfredo$Treatment=="LD2"] 
+
+sample_info.alfredo = sample_info.alfredo[sample_info.alfredo$NGI.ID %in%names.T89.LD2,]
+
+sample_info.alfredo$Status <- 
+    droplevels(sample_info.alfredo$Status)
+sample_info.alfredo$Status <-
+    relevel(sample_info.alfredo$Status,"good")
+str(sample_info.alfredo$Status)
+```
+
+Now we select the columns from the dds object that we want to analyse again by name and then supply the new dds object with the metadata we previously created. 
+
+```{r}
+dds.good.int.bad <- dds.good.int.bad[,colnames(dds.good.int.bad) %in% names.T89.LD2]
+colData(dds.good.int.bad) <- DataFrame(sample_info.alfredo)
+```
+
+Checking the structure of dds object we see that we did well and only have
+the sample we want to compare and the correct metadata.
+
+```{r}
+dds.good.int.bad
+```
+
+Now we run the differential expression based on the design that is based on the give status of each sample
+
+```{r}
+design(dds.good.int.bad) <- ~Status
+dds.good.int.bad <- DESeq(dds.good.int.bad)
+```
+```{r}
+resultsNames(dds.good.int.bad)
+```
+
+## Method 1 (applying thresehold for sig. after results function)
+Store the results matrix of the difference between good and bad classified samples
+```{r}
+res.good.int.bad <- results(dds.good.int.bad
+                            , name="Status_bad_vs_good")
+```
+
+Summary of the results without specifying the threshold we want 
+```{r}
+summary(res.good.int.bad)
+```
+
+This volcano plot takes in mind the threshold we want
+```{r}
+volcanoPlot(res.good.int.bad)
+```
+
+This MA plot plot takes in mind the threshold we want
+```{r}
+gg.ma.Plot(res.good.int.bad
+           , sampleLabel = "D.E between replicates (T89 LW2) with status good vs bad" )
+```
+
+## Method 2 -What if we include the significans thresehold in the results comand?
+### Applying thresehold for sig. in results function
+We get less significant genes, but why?
+```{r}
+res.good.int.bad2 <- results(dds.good.int.bad
+                         , name="Status_bad_vs_good"
+                         , alpha = 0.01
+                         , lfcThreshold = 0.5)
+
+summary(res.good.int.bad2)
+```
+
+```{r include=FALSE}
+gg.ma.Plot(res.good.int.bad2
+           , sampleLabel = "D.E between replicates (T89 LW2) with status good vs bad")
+```
+
+### No. of sigificant genes from replicates.
+
+```{r echo=FALSE}
+sig.gene.list(res.good.int.bad) %>% length() %>%
+    cat("Method 1 No. of D.E genes between replicates (T89 LD2):",.,"\n")
+sig.gene.list(res.good.int.bad2) %>% length() %>%
+    cat("Method 2 No. of D.E genes between replicates (T89 LD2):",.)
+```
+
+
+# Singel sample MA plots (with raw (non-vst) count data)
+
+We get the names of the samples to be able to select them from the 
+count matrix (kg.salmon)
+
+
+```{r echo=FALSE}
+sample_info.alfredo %>%
+    magrittr::extract(.$NGI.ID==names.T89.LD2,c(1,2,8)) %>% pander()
+```
+
+## Good1 vs Good2 (P10011_164, P10011_271) Left
+## Bad1 vs Bad2 (P10011_162, P10011_163) Rigth
+
+```{r echo=FALSE, fig.height=4,fig.width=8}
+par(mfrow = c(1,2))
+maPlot.singelSample(kg.salmon,c("P10011_164","P10011_271"))
+maPlot.singelSample(kg.salmon,c("P10011_162","P10011_163"))
+par(mfrow = c(1,1))
+```
+
+## Good (P10011_164) vs 3*Bad (P10011_162, P10011_163, P10011_270)
+
+The good sample is plotted against three of the bad samples
+
+```{r echo=FALSE, fig.width=15,fig.height=5}
+par(mfrow = c(1,3))
+maPlot.singelSample(kg.salmon,c("P10011_164","P10011_162"))
+maPlot.singelSample(kg.salmon,c("P10011_164","P10011_163"))
+maPlot.singelSample(kg.salmon,c("P10011_164","P10011_270"))
+par(mfrow = c(1,1))
+```
+
+
+## Good (P10011_271) vs 3*Bad (P10011_162, P10011_163, P10011_270)
+
+The good sample is plotted against three of the bad samples
+
+```{r echo=FALSE,fig.width=15,fig.height=5}
+par(mfrow = c(1,3))
+maPlot.singelSample(kg.salmon,c("P10011_271","P10011_162"))
+maPlot.singelSample(kg.salmon,c("P10011_271","P10011_163"))
+maPlot.singelSample(kg.salmon,c("P10011_271","P10011_270"))
+par(mfrow = c(1,1))
+```
+
+# Conclution
+
+The replicates that were initially classified as "bad" due to the to a significantly skewed raw count distribution where re-checked for quallity if the bad effect could be remediated. 
+
+The five samples in question belonged to the same genotype + treatment T89 LW2. We used deseq to analyse the difference between good and bad samples and could find 166 differentially expressed genes among replicates which tells us that there is great difference between samples.
+
+In additon we made MA and Vulcano plots of this difference, further on we also plotted single sample MA plots in which we plotted one sample och each class (good/bad) to see differece between classes. 
+
+All of this resulted in strange patterns which there seemed to be a great difference between classes. By this I think is legitim to exclude these samples in future analysis.
+
+
+```{r, echo=FALSE}
+?par
+par(mar=c(5, 6, 6, 3) + 0.1 , mgp=c(3,1,0))
+banames= names(head(sort(colSums(kg.salmon)),10)) %>% str_extract("[0-9]{3}$")
+
+seqD = barplot(head(sort(colSums(kg.salmon)),10),names.arg = banames ,las=2
+        , main = "Sequencing Depth of the bottom 10 samples")
+
+text(seqD,head(sort(colSums(kg.salmon)),10)+200000,labels = head(sort(colSums(kg.salmon)),10))
+```
+
+
+
+# Session info
+
+```{r echo=FALSE}
+sessionInfo()
+```
+
+
+
+
