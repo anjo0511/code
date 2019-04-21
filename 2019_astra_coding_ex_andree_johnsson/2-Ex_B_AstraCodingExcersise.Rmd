@@ -1,0 +1,146 @@
+---
+title: "AstraZeneca Coding Exercise Ex:B"
+author: "Andreé Johnsson"
+date: "21/04/2019"
+output: html_document
+---
+
+```{r}
+suppressMessages(library(magrittr))
+suppressMessages(library(tidyverse))
+suppressMessages(library(wordcloud))
+suppressMessages(library(RColorBrewer))
+
+```
+
+# Select Columns
+```{r}
+df.Merged.1960.2022 %<>% transmute(year = as.integer(substr(effective_time,1,4))
+                                , route = route
+                                , spl_product_data_elements)
+
+```
+
+# Taking at how many routes they are nested at most.
+```{r}
+df.Merged.1960.2022$route %>% lengths() %>% table()
+```
+
+
+# The rout and spl columns are nested we put together the route by spaces and unnest spl
+This makes the data fully unnested. By taking a look at the first few columns of ingredients we notice that some manu facturers have these coma separated whilst others only separates the ingredients by spaces this needs to be taken care of when calc the avg no if ingredients.
+```{r}
+df.route <-
+    df.Merged.1960.2022 %>%
+    mutate( route = map_chr(route,~paste(unlist(.x),collapse = ","))) %>%
+    separate_rows(route,sep=",")
+    
+df.route %<>% unnest(spl_product_data_elements) 
+```
+
+# Helper function to manupulate the downloaded df 
+Since more or less halv the hits had the ingredients sep with coma and halc with spaces
+we make a lilte helper fun to deal with that and put rearrange the df to a big df.
+```{r}
+countAverage <- function(df){
+    
+    df.comma <- df %>% filter(str_detect(spl_product_data_elements,","))
+    df.space <- df %>% filter(!str_detect(spl_product_data_elements,","))
+    
+    df.comma %<>%
+        mutate(number_of_ingredients =
+                   map_dbl(spl_product_data_elements
+                           , ~length(unique(unlist(str_split(.x,","))))))
+    df.space %<>%
+        mutate(number_of_ingredients =
+                   map_dbl(spl_product_data_elements
+                           , ~length(unique(unlist(str_split(.x," "))))))
+    
+    df.co_sp <- rbind(df.comma,df.space)
+    df.co_sp %<>% select(year, route, number_of_ingredients) 
+    
+    df.co_sp %<>% group_by(year,route) %>%
+        summarise(avg_number_of_ingredients =
+                  round(mean(number_of_ingredients,),2)) %>%
+        arrange(desc(year))
+    return(df.co_sp)
+    }
+```
+
+
+
+```{r}
+test = countAverage(df.route)
+test
+```
+
+To have an overview of the most frequent routes we plot a wordcloud
+Seems that Oral. Topical and Intravenous are among the most frequent routes.
+```{r}
+test.w <- test %>% ungroup() %>% count(route,sort = TRUE)
+pal = brewer.pal(9,"Blues")
+wordcloud(test.w$route
+          , freq = test.w$n
+          , rot.per = 0
+          , min.freq = 2
+          , random.order = F
+          , random.color = F
+          , scale = c(4,.3) 
+          , colors = rev(pal))
+
+```
+
+# To see some trends we first take a look at the words most abundant without taking in mind the number of ingredients. We pull out the names of the routes with more than 11 appereances and plot them by year againt their average no of ingredients
+
+We can already see some trends like for route: Oral the trend is occilating across time, and rectal seems to have gone down drastically since their first apperance approx 2010.
+
+```{r}
+most.names <- test.w %>% filter(n>=11) %>% pull(route)
+
+test %>% filter(route %in% most.names) %>%
+    ggplot(aes(x=year,y=avg_number_of_ingredients,group=route,col=route)) +
+    geom_smooth(se=FALSE) 
+    
+    
+```
+
+
+# Since we have numerous number of routes we need to adress some intresting patterns so we choose
+to calculate the the variance in avg number of ingredients per route and year. We later arrange the route by decresing variance and pull out the names. This vector gives the routes of the most variant av number of ingredients per per year which may give us some intresing pattern.
+
+```{r}
+route.var <-
+    test %>%
+    group_by(route) %>%
+    summarise(var = var(avg_number_of_ingredients)) %>%
+    arrange(desc(var)) %>% pull(route)
+
+route.var
+```
+
+# We not plot the most variant route across time 5 at the time and see that some patterns emmerge.
+The first plot clearly displays some obious patterns for almost every route. With this it would not be so hard to predict next years avg number of ingredients for these routes.
+```{r}
+
+test %>% filter(route %in% route.var[1:5]) %>%
+    ggplot(aes(x=year,y=avg_number_of_ingredients,group=route,col=route)) +
+    geom_line() +
+    geom_point()
+ 
+test %>% filter(route %in% route.var[6:10]) %>%
+    ggplot(aes(x=year,y=avg_number_of_ingredients,group=route,col=route)) +
+    geom_line() +
+    geom_point()  
+
+test %>% filter(route %in% route.var[11:16]) %>%
+    ggplot(aes(x=year,y=avg_number_of_ingredients,group=route,col=route)) +
+    geom_line() +
+    geom_point()  
+```
+
+ 
+•	Could you find the most common drug interactions for AstraZeneca medicines?
+Yes I could deffinetly do that, it is just to specify the right search field and term in the helper functions I  made and then count the hits.
+
+•	How would you deploy your analysis/model as a tool that other users can use?
+I could separate the data gathering part and the interacive part into two make it more quick, and for the interactive part so that users can interact with it I could make a ShinyApp in R so that one can interact with the data in real time and make some informative diagrams and pot usefull information that the uer specifies

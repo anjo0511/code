@@ -1,0 +1,232 @@
+---
+title: "AstraZeneca Coding Exercise: Data Download"
+author: "Andreé Johnsson"
+date: "21/04/2019"
+output: html_document
+---
+
+This file bassically gathers the data for both ex A and B and then we perform
+the analysis in a separate file each.
+I chose the spl_id as the drug name since it said on the webpage that it is unique
+across drug versions and is is harmonised in the openfda database.
+
+
+# Loading the nececary libraries
+```{r}
+suppressMessages(library(magrittr))
+suppressMessages(library(tidyverse))
+suppressMessages(library(httr))
+suppressMessages(library(jsonlite))
+suppressMessages(library(rlist))
+```
+
+
+# To modify the user search query (helper fun.)
+```{r}
+getQuery <- function(fields,term=NULL,YfmfY2m2=NULL){
+
+    sh <-
+        paste0("_exists_:",fields) %>%
+        paste(collapse = "+AND+") %>%
+        paste("search=",.,sep="")
+    
+    if (!is.null(term)){
+        sh <-
+            paste0("+AND+",term) %>%
+            paste(collapse ="") %>% 
+            paste(sh,.,sep = "")
+    }
+    if (!is.null(YfmfY2m2)){
+        timsearch= sprintf("effective_time:[%s-%s-01+TO+%s-%s-31]"
+                   ,YfmfY2m2[1], YfmfY2m2[2],YfmfY2m2[3],YfmfY2m2[4])
+        sh <-
+            paste(sh,timsearch,sep="+AND+") 
+    }
+    return(list("fields"=fields,"url"=sh))
+}
+```
+
+# To paste the user search query with the api_key and extensions making a complete url. (helper fun.)
+```{r}
+returnSearchURL <-function(fields, term=NULL
+                           , YfmfY2m2=NULL, countTime=FALSE, skip=0){
+    
+    druglabel <- "https://api.fda.gov/drug/label.json"
+    api_key <- "api_key=hGmAk4Edl32JVheOgWrrD6D9p5f4AQbpJWiAaXCb"
+
+    search <- getQuery(fields=fields, term=term, YfmfY2m2=YfmfY2m2)
+    url <- ifelse(countTime==FALSE
+               , sprintf("%s&limit=99&skip=%s", search$url, skip)
+               , sprintf("%s&count=effective_time", search$url))
+    search.url <- paste(paste0(c(druglabel,api_key, url)
+                             , c("?","&","")), collapse="")
+    
+    return(list("fields"=search$fields,"url"=search.url))
+}
+```
+
+
+# To dowload one page at the time by specifying the search or count the hits of a specific search.
+```{r}
+get_n_parse <- function(fields, term=NULL
+                        , YfmfY2m2=NULL, countTime=FALSE, skip=0){
+    
+    search <-
+        returnSearchURL(fields, term=term, YfmfY2m2=YfmfY2m2
+                        , countTime=countTime, skip=skip)
+    url = search$url
+    
+    df <-
+        GET(url) %>% stop_for_status() %>% 
+        content(as="text",encoding = "UTF-8") %>%  
+        jsonlite::fromJSON()
+    
+    if(countTime == TRUE){
+        df$results %<>% transmute(
+        count,
+        year = as.integer(substr(time,0,4)),
+        month = substr(time,5,6) ) %>%
+        group_by(year,month) %>%
+        summarise(count.per.year = sum(count)) %>%
+        arrange(desc(year))
+    }
+    return(list("fields"=search$fields
+                , "no.hits" =df$meta$results$total
+                , "df.results" =df$results) )
+}
+```
+
+# Function for exB
+
+# To dowload a range of pages by time, skip is auto. Returns a df specified for ex B.  (helper fun.)
+```{r}
+get.df.given.a.year <-function(YfmfY2m2=NULL, tot.hits=1){
+    r.1 <- NULL
+    for(i in seq(0,tot.hits,99)){
+            tmp <-
+                tryCatch(get_n_parse(fields = c("effective_time"
+                               , "spl_product_data_elements"
+                               , "openfda.manufacturer_name"
+                               , "openfda.route")
+                               , YfmfY2m2 = YfmfY2m2
+                               , skip = i)
+                         , error = function(x){cat("Error occured:",i,"\n")
+                             return(NULL)})
+            if (!is.null(tmp)){
+                tmp <- tmp$df.results
+                tmp %<>% transmute(
+                    effective_time,
+                    spl_product_data_elements,
+                    manufacturer_name = tmp$openfda$manufacturer_name,
+                    route = tmp$openfda$route)
+                r.1 %<>% rbind(tmp)
+            }
+            cat(ceiling((i/tot.hits)*100),"% Done, Skip:",i,"\n")
+            Sys.sleep(0.2)
+    }
+    return(r.1)
+}
+```
+
+
+# By explorative analysis one gives a cont df of hits per year or year and month and specifies the year and month ranges to download data. (Obs. month spec. can only be for months having 31 days)
+# This is because the sever kan only take a skip up to 25000 and limit of 99.
+```{r}
+get.df.for.range.year <-function(df.count,y.range,m.range=c("01","12")){
+    
+    df <- df.count %>% filter(year %in% y.range)
+    year.min = min(df$year)
+    year.max = max(df$year)
+    
+    if("month" %in% colnames(df)){
+        m.range.int <- as.integer(m.range)
+        no.hit = sum(df$count.per.year[m.range.int[1]:m.range.int[2]])}
+
+    else{no.hit <- sum(df$count.per.year)}
+    
+    df.results <-
+        get.df.given.a.year(YfmfY2m2=c(year.min, m.range[1]
+                                       ,year.max, m.range[2])
+                              ,tot.hits =no.hit)
+    return(df.results)
+}
+```
+
+
+
+
+# Ex A
+First we call the function specidying that we want to count the no of hits and then by seeing
+that we only get 45 hits we call it again to dowload the df.
+```{r}
+ExA <-
+    get_n_parse(fields = c("effective_time"
+                           , "spl_product_data_elements"
+                           , "openfda.manufacturer_name")
+           , term = c("openfda.manufacturer_name:AstraZeneca+Pharmaceuticals+LP")
+           , countTime = FALSE)
+
+ExA$df.results$count.per.year %>% sum()
+df.Manu.AstraZeneca <- ExA$df.results
+```
+
+
+# Ex B
+First again we see how many hits we have and how they are distributed over the years and months
+this makes us dowload the data in batches, by year not surpasing 25000, the year with more hits
+gets divided into to parts.
+```{r}
+ExB <-
+    get_n_parse(fields = c("effective_time"
+                           , "spl_product_data_elements"
+                           , "openfda.manufacturer_name"
+                           , "openfda.route")
+                , countTime = TRUE)
+ExB.sum <-
+    ExB$df.results %>%
+    group_by(year) %>%
+    summarise(count.per.year=sum(count.per.year))
+ExB.sum
+```
+
+
+```{r}
+ExB.sum %>% filter(year < 2011) %>% pull(count.per.year) %>% sum
+```
+
+
+
+# Download Everything at once and merge
+Should take about 9 min to get all the data. 
+```{r}
+t.1 = Sys.time()
+
+df_1960_2010 = get.df.for.range.year(ExB.sum,1960:2010)
+df_2011_2016 <-
+    2011:2016 %>%
+    map(~get.df.for.range.year(ExB.sum,.x)) %>% do.call(rbind,.)
+
+df_2017 = get.df.for.range.year(ExB.sum,2017)
+
+df_2018.1 = get.df.for.range.year(ExB$df.results,2018, m.range = c("01","07"))
+df_2018.2 = get.df.for.range.year(ExB$df.results,2018, m.range = c("08","12"))
+
+df_2019_2022 = get.df.for.range.year(ExB.sum,2019:2022)
+
+df.Merged.1960.2022 <- rbind(df_1960_2010
+                             , df_2011_2016
+                             , df_2017
+                             , df_2018.1
+                             , df_2018.2
+                             , df_2019_2022)
+
+t.2 = Sys.time()
+t.2 - t.1
+```
+
+
+```{r}
+save.image("astraEx-dfs.RData")
+```
+
+

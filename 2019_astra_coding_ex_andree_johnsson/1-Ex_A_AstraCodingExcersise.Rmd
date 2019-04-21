@@ -1,0 +1,74 @@
+---
+title: "AstraZeneca Coding Exercise Ex:A"
+author: "Andreé Johnsson"
+date: "21/04/2019"
+output: html_document
+---
+
+
+```{r}
+suppressMessages(library(magrittr))
+suppressMessages(library(tidyverse))
+```
+
+# Select Columns
+```{r}
+df.Manu.AstraZeneca %<>% transmute(effective_time
+                                , spl_id = unlist(df.Manu.AstraZeneca$openfda$spl_id)
+                                , spl_product_data_elements)
+
+```
+
+# Manipulate Columns
+```{r}
+df.Manu.AstraZeneca %<>% transmute(year = substr(effective_time,1,4)
+                                   , spl_product_data_elements
+                                   , number_of_ingredients =
+                                       map_dbl(spl_product_data_elements
+                                               , ~lengths(str_split(.x,",")) )
+                                   , spl_id)
+```
+
+# Calc average no. of elements per year
+```{r}
+df.sum <-
+    df.Manu.AstraZeneca %>%
+    group_by(year) %>%
+    summarise(drug_names_spl_id = list(spl_id)
+              , avg_number_of_ingredients =
+                  round(mean(number_of_ingredients,),2))
+
+df.sum
+```
+
+# Visualize The Results.
+Here we see the no. of drugs per year as a barchart and a line represents the average no. of ingredients. There seems that Astra manucatured most drugs in year 16 and 18 but that the avg no af ingredients do not seem to correlate with the no. of drugs for those years. In 16 the avg no of ingredients goes down despite having the second most drugs, this is different from for 18 when the most drugs corresponded to highest avg as well. 
+```{r}
+df.sum %>%
+    ggplot(aes(x=year,y=(avg_number_of_ingredients)*4, group=1)) +
+    geom_col(aes(x=year,y=lengths(drug_names_spl_id))) +
+    geom_point(size=1.2,col="blue") +
+    geom_line(size=1.2,col="blue") +
+    scale_y_continuous("No. Drugs per year"
+                       , sec.axis = sec_axis(~ ./4, name = "Avg. no. ingredients")) +
+    theme(axis.title.y.right = element_text(color = "blue"))
+
+```
+
+
+```{r}
+df.sum
+```
+
+To see how strong is the correlatino between avg no of ingredients and no af drugs we plot them agains each other.
+```{r}
+df.sum %>%
+    ggplot(aes(y= lengths(drug_names_spl_id),levels=drug_names_spl_id
+               , x= factor(avg_number_of_ingredients,levels = avg_number_of_ingredients)
+               , group=1)) +
+    geom_line() +
+    geom_point(aes(col=year),size=4) +
+    labs(x="Avg No.of Ingredients", y= "No. Drugs" )
+    
+```
+
